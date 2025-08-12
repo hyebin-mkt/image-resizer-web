@@ -75,4 +75,4 @@ html = """
    .replace("__PORTAL_ID__", PORTAL_ID)\
    .replace("__FORM_ID__", FORM_ID)
 
-st.components.v1.html(html, height=950, scrolling=True)
+st.components.v1.html(html, height=1200, scrolling=True)
