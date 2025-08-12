@@ -12,7 +12,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image, ImageOps
 
-APP_TITLE = "Key Image Resizer (Web) — made by Chacha"
+APP_TITLE = "Image Resizer — by Chacha"
 VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
 PRESETS = [
