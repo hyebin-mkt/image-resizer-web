@@ -3,19 +3,10 @@ import json, uuid
 import requests
 import streamlit as st
 
-# =============== 페이지 & 상단 바 ===============
+# =============== 페이지 헤더 ===============
 st.set_page_config(page_title="🧚🏻‍♂️ MBM Magic Wizard", page_icon="📄", layout="centered")
-
 st.title("🧚🏻‍♂️ MBM Magic Wizard")
-st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 실행하세요")
-
-# 전역 스타일: 탭은 항상 오른쪽으로 “늘어나는” 것처럼 보이게
-st.markdown("""
-<style>
-/* 활성 탭을 내부적으로 첫 칸에 두더라도, 시각적으로는 ①→②→③ 순으로 보이게 */
-div.stTabs [role="tablist"] { flex-direction: row-reverse; }
-</style>
-""", unsafe_allow_html=True)
+st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
 
 # =============== 설정값 & 상수 ===============
 TOKEN = st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN", "")
@@ -41,7 +32,7 @@ HEADERS_JSON = {
 # =============== 세션 상태 ===============
 ss = st.session_state
 ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
-ss.setdefault("mbm_submitted", False)   # ① 제출 완료 여부
+ss.setdefault("mbm_submitted", False)
 ss.setdefault("mbm_title", "")
 ss.setdefault("results", None)          # {"title": str, "links": dict}
 
@@ -49,11 +40,10 @@ ss.setdefault("results", None)          # {"title": str, "links": dict}
 def ordinal(n: int) -> str:
     n = int(n)
     if 10 <= (n % 100) <= 20: suf = "th"
-    else: suf = {1:"st",2:"nd",3:"rd"}.get(n%10,"th")
+    else: suf = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
     return f"{n}{suf}"
 
 def copy_button(text: str, key: str):
-    """실제로 복사되는 작고 예쁜 버튼"""
     safe = json.dumps(text)
     st.components.v1.html(
         f"""
@@ -194,21 +184,44 @@ def clone_form_with_hidden_value(template_guid: str, new_name: str, hidden_value
     }
     return hs_create_form_v2(payload)
 
-# =============== 탭 구성 ===============
+# =============== 탭 구성 (새 탭은 오른쪽에 추가) ===============
 TAB1 = "MBM 오브젝트 제출"
 TAB2 = "후속 작업 선택"
 TAB3 = "최종 링크 공유"
 
+def _focus_tab(label: str):
+    # 렌더 직후 해당 라벨 탭을 자동 클릭하여 전환
+    st.components.v1.html(f"""
+    <script>
+    (function(){{
+      function clickTab(){{
+        const tabs = window.parent.document.querySelectorAll('[role="tab"]');
+        for (const t of tabs) {{
+          const txt = (t.innerText || "").trim();
+          if (txt.indexOf("{label}") !== -1) {{ t.click(); return; }}
+        }}
+      }}
+      setTimeout(clickTab, 50);
+      setTimeout(clickTab, 250);
+      setTimeout(clickTab, 500);
+    }})();
+    </script>
+    """, height=0, width=0)
+
 def make_tabs():
-    # “활성 탭을 첫 칸”에 두고(자동 전환 효과), CSS로는 row-reverse라 시각적 순서는 ①→②→③로 보임
-    if ss.active_stage == 1:
-        labels = [TAB1, TAB2, TAB3]
-    elif ss.active_stage == 2:
-        labels = [TAB2, TAB1, TAB3]
-    else:  # 3
-        labels = [TAB3, TAB2, TAB1]
+    labels = [TAB1]
+    if ss.mbm_submitted:
+        labels.append(TAB2)
+    if ss.results:
+        labels.append(TAB3)
     t = st.tabs(labels)
-    return t, {label: i for i, label in enumerate(labels)}
+    idx = {label: i for i, label in enumerate(labels)}
+    # 자동 포커스
+    if ss.active_stage == 2 and TAB2 in idx:
+        _focus_tab(TAB2)
+    elif ss.active_stage == 3 and TAB3 in idx:
+        _focus_tab(TAB3)
+    return t, idx
 
 tabs, idx = make_tabs()
 
@@ -216,9 +229,8 @@ tabs, idx = make_tabs()
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
 
-    # (수정 3) 라벨/헬프 텍스트 변경
     st.markdown("**MBM 오브젝트 타이틀 설정**")
-    st.markdown("네이밍 규칙: `[국가코드] YYYYMMDD 웨비나명` 형식으로 입력하세요.", help=None)
+    st.markdown("네이밍 규칙: `[국가코드] YYYYMMDD 웨비나명` 형식으로 입력하세요.")
     c1, c2 = st.columns([6, 1])
     with c1:
         ss.mbm_title = st.text_input(
@@ -231,9 +243,8 @@ with tabs[idx[TAB1]]:
     with c2:
         copy_button(ss.mbm_title, key=f"title_{uuid.uuid4()}")
 
-    # (수정 2/4) 제출 후에는 폼 iFrame/헬프텍스트 숨김
+    # 제출 후에는 폼/안내 숨김
     if not ss.mbm_submitted:
-        st.markdown("#### MBM Object Create Form\n(내부 구성원 MBM Object 생성용)")
         FORM_IFRAME_HEIGHT = 1200
         html = f"""
         <div id="hubspot-form"></div>
@@ -261,7 +272,7 @@ with tabs[idx[TAB1]]:
         st.info("폼을 제출한 뒤, 아래 버튼을 누르면 ‘후속 작업 선택’ 탭으로 전환됩니다.")
         if st.button("폼 제출 완료 → ‘후속 작업 선택’ 탭 열기", type="primary"):
             ss.mbm_submitted = True
-            ss.active_stage = 2         # 자동으로 ②로 이동
+            ss.active_stage = 2
             st.rerun()
 
 # =============== 탭②: 후속 작업 선택 ===============
@@ -290,7 +301,7 @@ if ss.mbm_submitted:
             links = {"Landing Page": [], "Email": [], "Form": []}
 
             try:
-                # --- 페이지 클론 & 내부명 업데이트 & 퍼블리시 ---
+                # 페이지 클론 & 내부명 업데이트 & 퍼블리시
                 if make_lp:
                     page_name = f"{ss.mbm_title}_landing page"
                     with st.spinner(f"페이지 복제 중… ({page_name})"):
@@ -307,7 +318,7 @@ if ss.mbm_submitted:
                         if public_url:
                             links["Landing Page"].append(("공개", public_url))
 
-                # --- 이메일 N개 클론 & 내부명 업데이트 ---
+                # 이메일 N개 클론 & 내부명 업데이트
                 if make_em:
                     for i in range(1, int(email_count) + 1):
                         email_name = f"{ss.mbm_title}_email_{ordinal(i)}"
@@ -318,7 +329,7 @@ if ss.mbm_submitted:
                             edit_url = f"https://app.hubspot.com/email/{PORTAL_ID}/edit/{em_id}/settings"
                             links["Email"].append((f"Email {ordinal(i)}", edit_url))
 
-                # --- Register Form 클론 & 숨김 필드 주입 ---
+                # Register Form 클론 & 숨김 값 주입
                 form_name = f"{ss.mbm_title}_register form"
                 with st.spinner(f"Register Form 복제 중… ({form_name})"):
                     new_form = clone_form_with_hidden_value(
@@ -329,7 +340,7 @@ if ss.mbm_submitted:
                     links["Form"].append(("편집", edit_url))
 
                 ss.results = {"title": ss.mbm_title, "links": links}
-                ss.active_stage = 3        # (수정1) 생성 후 ③으로 확실히 전환
+                ss.active_stage = 3
                 st.success("생성이 완료되었습니다. ‘최종 링크 공유’ 탭으로 이동합니다.")
                 st.rerun()
 
@@ -344,7 +355,6 @@ if ss.results:
         st.markdown("### ③ 최종 링크 공유")
         st.success(f"MBM 생성 결과 – **{ss.results['title']}**")
 
-        # 카드형 박스 + 복사 버튼
         def link_box(title: str, items: list[tuple[str, str]], prefix_key: str):
             st.markdown(f"#### {title}")
             for i, (label, url) in enumerate(items, start=1):
@@ -367,7 +377,7 @@ if ss.results:
 
         st.divider()
 
-        # 전체 결과 텍스트 + 버튼(아래에 단독 배치)
+        # 전체 결과 텍스트 + 복사 버튼(아래)
         all_lines = [f"[MBM] 생성 결과 - {ss.results['title']}", ""]
         if ss.results["links"].get("Landing Page"):
             all_lines.append("▼ Landing / Website Page")
@@ -387,7 +397,6 @@ if ss.results:
 
         all_text = "\n".join(all_lines)
         st.text_area("전체 결과 (미리보기)", value=all_text, height=180, label_visibility="collapsed")
-
         if st.button("전체 결과물 복사", type="primary"):
             st.components.v1.html(
                 f"<script>navigator.clipboard.writeText({json.dumps(all_text)});</script>",
