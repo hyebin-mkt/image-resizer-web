@@ -1,5 +1,5 @@
 # app.py
-# ⚡원샷원킬 이미지 생성기⚡ — made by Chacha
+# ⚡원샷원킬 배너 생성기 — made by Chacha
 # Upload one image and export multiple sizes (presets + custom) with scale options.
 # Feedback section posts to GitHub Issues via Secrets (GH_TOKEN, GH_REPO).
 # Run locally: pip install -r requirements.txt && streamlit run app.py
@@ -14,7 +14,7 @@ import requests
 import streamlit as st
 from PIL import Image, ImageOps
 
-APP_TITLE = " ⚡원샷원킬 이미지 생성기"
+APP_TITLE = " ⚡원샷원킬 배너 생성기"
 VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
 PRESETS = [
