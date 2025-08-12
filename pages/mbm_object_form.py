@@ -10,7 +10,7 @@ HUBSPOT_REGION = "na1"
 PORTAL_ID = "2495902"
 FORM_ID = "a9e1a5e8-4c46-461f-b823-13cc4772dc6c"
 
-# f-string/중괄호 충돌 방지를 위해 평문 + replace 사용
+# f-string 충돌 피하려고 평문 + replace 사용
 html = """
 <div id="hubspot-form"></div>
 
@@ -27,50 +27,52 @@ html = """
 </div>
 
 <script>
-(function() {{
+(function() {
   var s = document.createElement('script');
   s.src = "https://js.hsforms.net/forms/v2.js";
   s.async = true;
-  s.onload = function() {{
+  s.onload = function() {
     if (!window.hbspt) return;
-    window.hbspt.forms.create({{
+    window.hbspt.forms.create({
       region: "__REGION__",
       portalId: "__PORTAL_ID__",
       formId: "__FORM_ID__",
       target: "#hubspot-form",
       inlineMessage: "MBM/Campaign Object가 자동으로 생성되었습니다. 각 오브젝트의 링크를 메일로 보내드릴게요.",
-      onFormSubmitted: function() {{
+      onFormSubmitted: function() {
         var actions = document.getElementById('post-actions');
         if (actions) actions.style.display = 'block';
-      }}
-    }});
-  }};
+      }
+    });
+  };
   document.body.appendChild(s);
 
   // 이메일 체크 시 횟수 입력칸 토글
-  document.addEventListener('change', function(e){{
-    if (e.target && e.target.id === 'make-email') {{
+  document.addEventListener('change', function(e){
+    if (e.target && e.target.id === 'make-email') {
       var wrap = document.getElementById('email-count-wrap');
       wrap.style.display = e.target.checked ? 'block' : 'none';
-    }}
-  }});
+    }
+  });
 
   // 생성하기 클릭 (※ 실제 HubSpot 템플릿 복제 연동은 추후)
-  document.addEventListener('click', function(e){{
-    if (e.target && e.target.id === 'do-create') {{
-      var payload = {{
+  document.addEventListener('click', function(e){
+    if (e.target && e.target.id === 'do-create') {
+      var payload = {
         makeLanding: document.getElementById('make-landing').checked,
         makeEmail: document.getElementById('make-email').checked,
         emailCount: parseInt(document.getElementById('email-count').value || '1', 10)
-      }};
+      };
       console.log('post-submit selections', payload);
       var res = document.getElementById('create-result');
       res.style.display = 'block';
       res.textContent = "요청을 접수했습니다. (API/워크플로우 연동 필요)";
-    }}
-  }});
-}})();
+    }
+  });
+})();
 </script>
-""".replace("__REGION__", HUBSPOT_REGION)   .replace("__PORTAL_ID__", PORTAL_ID)   .replace("__FORM_ID__", FORM_ID)
+""".replace("__REGION__", HUBSPOT_REGION)\
+   .replace("__PORTAL_ID__", PORTAL_ID)\
+   .replace("__FORM_ID__", FORM_ID)
 
 st.components.v1.html(html, height=950, scrolling=True)
