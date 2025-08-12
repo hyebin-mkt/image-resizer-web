@@ -71,7 +71,7 @@ tabs = st.tabs(tab_labels)
 
 with tabs[0]:
     st.markdown("##### ① MBM 오브젝트를 먼저 제출하세요")
-    iframe_height = 120 if st.session_state.mbm_submitted else 420
+    iframe_height = 1200 if st.session_state.mbm_submitted else 420
     html = """
     <div id="hubspot-form"></div>
     <script>
