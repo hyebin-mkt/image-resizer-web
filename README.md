@@ -46,4 +46,4 @@ Image Resizer_by Chacha | ver.1.0
 - (스크립트 실행 시) Pillow 설치 오류가 나면:  `pip install pillow`
 
 ■ 문의
-- 담당: Chacha (chb0218@midasit.com)
+- 제작자: Chacha
