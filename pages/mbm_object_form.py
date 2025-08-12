@@ -7,7 +7,7 @@ import streamlit as st
 # -----------------------
 st.set_page_config(page_title="MBM Object 생성기", page_icon="📄", layout="centered")
 st.title("MBM Object 생성기")
-st.caption("1) MBM Object Form 제출 → 2) 옵션 선택 → 3) 자동 복제 & 링크 요약")
+st.caption("1) MBM Object Form 제출 → 2) 탭에서 옵션 선택 → 3) 자동 복제 & 링크 요약")
 
 # -----------------------
 # 설정값 (secrets + 안전한 기본값)
@@ -38,53 +38,19 @@ HEADERS_JSON = {
     "Accept": "application/json",
 }
 
-# =========================================================
-# ===============  1) HubSpot 폼 임베드(컴팩트)  ==========
-# =========================================================
-# 제출 후 폼 영역 공백을 최소화: iframe 높이 고정(420px) + 컨테이너 접기
-html = """
-<div id="hubspot-form"></div>
-<script>
-(function() {
-  var s = document.createElement('script');
-  s.src = "https://js.hsforms.net/forms/v2.js";
-  s.async = true;
-  s.onload = function() {
-    if (!window.hbspt) return;
-    window.hbspt.forms.create({
-      region: "__REGION__",
-      portalId: "__PORTAL__",
-      formId: "__FORM__",
-      target: "#hubspot-form",
-      inlineMessage: "제출 완료! 아래 옵션에서 랜딩/이메일/등록폼 복제를 선택하세요.",
-      onFormSubmitted: function() {
-        var c = document.getElementById('hubspot-form');
-        if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
-      }
-    });
-  };
-  document.body.appendChild(s);
-})();
-</script>
-""".replace("__REGION__", HUBSPOT_REGION)\
-   .replace("__PORTAL__", PORTAL_ID)\
-   .replace("__FORM__", FORM_ID_FOR_EMBED)
-
-st.components.v1.html(html, height=420, scrolling=True)
-st.divider()
+# -----------------------
+# 세션 상태 기본값
+# -----------------------
+if "mbm_submitted" not in st.session_state:
+    st.session_state.mbm_submitted = False  # ① 제출 완료 후 탭 ② 노출
+if "mbm_outputs" not in st.session_state:
+    st.session_state.mbm_outputs = None     # ② 실행 후 결과(링크 목록) 저장 → 탭 ③ 노출
 
 # =========================================================
 # ===============  서버 함수들 (HubSpot API)  =============
 # =========================================================
-
-# --- (3) 페이지 클론: Landing → 실패 시 Site로 자동 fallback ---
+# --- 페이지 클론: Landing → 실패 시 Site로 자동 fallback ---
 def _clone_page(endpoint: str, template_id: str, clone_name: str):
-    """
-    공통 클론 호출. endpoint 예:
-      - /cms/v3/pages/landing-pages/clone
-      - /cms/v3/pages/site-pages/clone
-    바디 키는 name/cloneName 모두 시도.
-    """
     url = f"{HS_BASE}{endpoint}"
     last_err = None
     for key in ("name", "cloneName"):
@@ -99,26 +65,16 @@ def _clone_page(endpoint: str, template_id: str, clone_name: str):
     raise last_err
 
 def hs_clone_page_auto(template_id: str, clone_name: str):
-    """
-    우선 Landing Page로 시도 → 404면 Site Page로 재시도.
-    반환: (response_json, used_type)  used_type ∈ {"landing","site"}
-    """
     try:
         data = _clone_page("/cms/v3/pages/landing-pages/clone", template_id, clone_name)
         return data, "landing"
     except requests.HTTPError as e:
-        # landing에서 404 → site로 재시도
         if e.response is not None and e.response.status_code == 404:
             data = _clone_page("/cms/v3/pages/site-pages/clone", template_id, clone_name)
             return data, "site"
         raise
 
 def hs_push_live(page_id: str, page_type: str) -> None:
-    """
-    type에 맞는 push-live 호출
-      - landing: /cms/v3/pages/landing-pages/:id/draft/push-live
-      - site   : /cms/v3/pages/site-pages/:id/draft/push-live
-    """
     if page_type == "site":
         url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}/draft/push-live"
     else:
@@ -126,7 +82,7 @@ def hs_push_live(page_id: str, page_type: str) -> None:
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
-# --- (3) 마케팅 이메일 복제 ---
+# --- 마케팅 이메일 복제 ---
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/marketing/v3/emails/clone"
     last_err = None
@@ -141,7 +97,7 @@ def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
             last_err = e
     raise last_err
 
-# --- (6) Register Form 복제 + 숨김필드 defaultValue = MBM 타이틀 (Forms v2) ---
+# --- Register Form 복제 + 숨김필드 defaultValue = MBM 타이틀 (Forms v2) ---
 FORMS_V2 = "https://api.hubapi.com/forms/v2"
 
 def hs_get_form_v2(form_guid: str) -> dict:
@@ -205,104 +161,153 @@ def clone_form_with_hidden_value(template_guid: str, new_name: str, hidden_value
     return hs_create_form_v2(payload)
 
 # =========================================================
-# ==================  2) 후속 작업 UI  ====================
+# ===================  탭 구성(동적)  =====================
 # =========================================================
-st.subheader("후속 작업 선택")
+tab_labels = ["MBM Object Form"]
+if st.session_state.mbm_submitted:
+    tab_labels.append("후속 작업 선택")
+if st.session_state.mbm_outputs:
+    tab_labels.append("후속 작업 산출물")
 
-with st.form("post_submit_actions"):
-    col1, col2 = st.columns([2,1])
-    with col1:
-        st.markdown("#### MBM Object 타이틀")
-        mbm_title = st.text_input(
-            "1번(MBM Object Form)에서 입력한 'Title'을 그대로 입력하세요.",
-            placeholder="[EU] 20250225 Algeria Seminar"
-        )
-    with col2:
-        st.markdown("#### 생성할 자산")
-        make_lp = st.checkbox("랜딩/웹페이지 복제", value=True)
-        make_em = st.checkbox("이메일 복제", value=True)
-        email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
+tabs = st.tabs(tab_labels)
 
-    submitted = st.form_submit_button("생성하기", type="primary")
+# ------------------ 탭 ①: 임베드 폼 ---------------------
+with tabs[0]:
+    st.markdown("##### ① 폼을 먼저 제출하세요")
+    iframe_height = 120 if st.session_state.mbm_submitted else 420
+    html = """
+    <div id="hubspot-form"></div>
+    <script>
+    (function() {
+      var s = document.createElement('script');
+      s.src = "https://js.hsforms.net/forms/v2.js";
+      s.async = true;
+      s.onload = function() {
+        if (!window.hbspt) return;
+        window.hbspt.forms.create({
+          region: "__REGION__",
+          portalId: "__PORTAL__",
+          formId: "__FORM__",
+          target: "#hubspot-form",
+          inlineMessage: "제출 완료! 상단 탭에서 ‘후속 작업 선택’으로 이동하세요.",
+          onFormSubmitted: function() {
+            var c = document.getElementById('hubspot-form');
+            if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
+          }
+        });
+      };
+      document.body.appendChild(s);
+    })();
+    </script>
+    """.replace("__REGION__", HUBSPOT_REGION)\
+       .replace("__PORTAL__", PORTAL_ID)\
+       .replace("__FORM__", FORM_ID_FOR_EMBED)
 
-# =========================================================
-# ===================  3~7 자동 실행  =====================
-# =========================================================
-if submitted:
-    if not mbm_title:
-        st.error("MBM Object 타이틀을 입력하세요.")
-        st.stop()
+    st.components.v1.html(html, height=iframe_height, scrolling=True)
 
-    created_links = {"Landing Page": [], "Email": [], "Form": []}
+    st.info("폼을 제출하신 뒤, 아래 버튼을 눌러 다음 단계 탭을 열어주세요.")
+    if st.button("폼 제출 완료 → ‘후속 작업 선택’ 탭 열기", type="primary"):
+        st.session_state.mbm_submitted = True
+        st.experimental_rerun()
 
-    try:
-        # (3) 페이지(landing 또는 site) 복제 + 퍼블리시
-        if make_lp:
-            clone_name = f"{mbm_title}_Landing Page"
-            with st.spinner(f"페이지 복제 중… ({clone_name})"):
-                page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, clone_name)
-                page_id = str(page_data.get("id") or page_data.get("objectId") or "")
-                hs_push_live(page_id, used_type)  # 타입에 맞게 퍼블리시
+# ------------------ 탭 ②: 후속 작업 선택 ----------------
+if st.session_state.mbm_submitted:
+    with tabs[1]:
+        st.markdown("##### ② 후속 작업 선택")
+        with st.form("post_submit_actions"):
+            col1, col2 = st.columns([2,1], gap="large")
+            with col1:
+                st.markdown("**MBM Object 타이틀**")
+                mbm_title = st.text_input(
+                    "①에서 입력한 'Title'을 그대로 입력하세요.",
+                    placeholder="[EU] 20250225 Algeria Seminar"
+                )
+            with col2:
+                st.markdown("**생성할 자산**")
+                make_lp = st.checkbox("랜딩/웹페이지 복제", value=True)
+                make_em = st.checkbox("이메일 복제", value=True)
+                email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
 
-                # 편집/공개 링크
-                if used_type == "site":
-                    edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
-                else:
-                    edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{page_id}/edit"
-                public_url = page_data.get("url") or page_data.get("publicUrl") or ""
+            submitted_actions = st.form_submit_button("생성하기", type="primary")
 
-                created_links["Landing Page"].append(edit_url)
-                if public_url:
-                    created_links["Landing Page"].append(public_url)
-            st.success("페이지 복제 완료")
+        if submitted_actions:
+            if not mbm_title:
+                st.error("MBM Object 타이틀을 입력하세요.")
+                st.stop()
 
-        # (3) 이메일 복제 (횟수)
-        if make_em:
-            for i in range(int(email_count)):
-                clone_name = f"{mbm_title}_Email_{i+1}"
-                with st.spinner(f"마케팅 이메일 복제 중… ({clone_name})"):
-                    em = hs_clone_marketing_email(EMAIL_TEMPLATE_ID, clone_name)
-                    em_id = str(em.get("id") or em.get("contentId") or "")
-                    email_edit_url = f"https://app.hubspot.com/email/{PORTAL_ID}/edit/{em_id}/settings"
-                    created_links["Email"].append(email_edit_url)
-            st.success(f"이메일 {email_count}개 복제 완료")
+            created_links = {"Landing Page": [], "Email": [], "Form": []}
 
-        # (6) Register Form 복제 + 숨김 필드 defaultValue = MBM 타이틀
-        form_name = f"{mbm_title}_Register Form"
-        with st.spinner(f"Register Form 복제 중… ({form_name})"):
-            new_form = clone_form_with_hidden_value(
-                FORM_TEMPLATE_GUID, form_name, mbm_title, MBM_HIDDEN_FIELD_NAME
-            )
-            new_guid = new_form.get("guid") or new_form.get("id")
-            form_edit_url = f"https://app.hubspot.com/forms/{PORTAL_ID}/{new_guid}/edit"
-            created_links["Form"].append(form_edit_url)
-        st.success("Register Form 복제 완료")
+            try:
+                # (3) 페이지(landing 또는 site) 복제 + 퍼블리시
+                if make_lp:
+                    clone_name = f"{mbm_title}_Landing Page"
+                    with st.spinner(f"페이지 복제 중… ({clone_name})"):
+                        page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, clone_name)
+                        page_id = str(page_data.get("id") or page_data.get("objectId") or "")
+                        hs_push_live(page_id, used_type)  # 타입에 맞게 퍼블리시
 
-        # (4)(7) 링크 요약 텍스트 (복사하기 편하게)
-        lines = []
-        lines.append(f"[MBM] 생성 결과 - {mbm_title}")
-        lines.append("")
-        if created_links["Landing Page"]:
-            lines.append("▼ Landing / Website Page")
-            for u in created_links["Landing Page"]:
-                lines.append(f"- {u}")
-            lines.append("")
-        if created_links["Email"]:
-            lines.append("▼ Marketing Emails")
-            for idx, u in enumerate(created_links["Email"], start=1):
-                lines.append(f"- Email {idx}: {u}")
-            lines.append("")
-        if created_links["Form"]:
-            lines.append("▼ Register Form")
-            for u in created_links["Form"]:
-                lines.append(f"- {u}")
-            lines.append("")
+                        # 편집/공개 링크
+                        if used_type == "site":
+                            edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
+                        else:
+                            edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{page_id}/edit"
+                        public_url = page_data.get("url") or page_data.get("publicUrl") or ""
+                        created_links["Landing Page"].append(edit_url)
+                        if public_url:
+                            created_links["Landing Page"].append(public_url)
 
-        summary_text = "\n".join(lines)
-        st.success("✅ 생성 완료! 아래 텍스트를 복사해서 영업팀에 공유하세요.")
-        st.code(summary_text, language=None)  # Copy 버튼 제공
+                # (3) 이메일 복제 (횟수)
+                if make_em:
+                    for i in range(int(email_count)):
+                        clone_name = f"{mbm_title}_Email_{i+1}"
+                        with st.spinner(f"마케팅 이메일 복제 중… ({clone_name})"):
+                            em = hs_clone_marketing_email(EMAIL_TEMPLATE_ID, clone_name)
+                            em_id = str(em.get("id") or em.get("contentId") or "")
+                            email_edit_url = f"https://app.hubspot.com/email/{PORTAL_ID}/edit/{em_id}/settings"
+                            created_links["Email"].append(email_edit_url)
 
-    except requests.HTTPError as http_err:
-        st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
-    except Exception as e:
-        st.error(f"실패: {e}")
+                # (6) Register Form 복제 + 숨김 필드 defaultValue = MBM 타이틀
+                form_name = f"{mbm_title}_Register Form"
+                with st.spinner(f"Register Form 복제 중… ({form_name})"):
+                    new_form = clone_form_with_hidden_value(
+                        FORM_TEMPLATE_GUID, form_name, mbm_title, MBM_HIDDEN_FIELD_NAME
+                    )
+                    new_guid = new_form.get("guid") or new_form.get("id")
+                    form_edit_url = f"https://app.hubspot.com/forms/{PORTAL_ID}/{new_guid}/edit"
+                    created_links["Form"].append(form_edit_url)
+
+                # (4)(7) 링크 요약 텍스트
+                lines = []
+                lines.append(f"[MBM] 생성 결과 - {mbm_title}")
+                lines.append("")
+                if created_links["Landing Page"]:
+                    lines.append("▼ Landing / Website Page")
+                    for u in created_links["Landing Page"]:
+                        lines.append(f"- {u}")
+                    lines.append("")
+                if created_links["Email"]:
+                    lines.append("▼ Marketing Emails")
+                    for idx, u in enumerate(created_links["Email"], start=1):
+                        lines.append(f"- Email {idx}: {u}")
+                    lines.append("")
+                if created_links["Form"]:
+                    lines.append("▼ Register Form")
+                    for u in created_links["Form"]:
+                        lines.append(f"- {u}")
+                    lines.append("")
+
+                st.session_state.mbm_outputs = "\n".join(lines)
+                st.success("생성이 완료됐습니다. 상단의 ‘후속 작업 산출물’ 탭에서 결과를 복사하세요.")
+                st.experimental_rerun()
+
+            except requests.HTTPError as http_err:
+                st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+            except Exception as e:
+                st.error(f"실패: {e}")
+
+# ------------------ 탭 ③: 결과(복사용 텍스트) -----------
+if st.session_state.mbm_outputs:
+    with tabs[2 if st.session_state.mbm_submitted else 1]:
+        st.markdown("##### ③ 후속 작업 산출물")
+        st.success("아래 텍스트를 복사하여 팀에 공유하세요.")
+        st.code(st.session_state.mbm_outputs, language=None)  # Copy 버튼 제공
