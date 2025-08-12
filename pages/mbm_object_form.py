@@ -5,8 +5,22 @@ import streamlit as st
 
 # =============== 페이지 & 설정 ===============
 st.set_page_config(page_title="MBM Object 생성기", page_icon="📄", layout="centered")
-st.title("MBM Object 생성기")
-st.caption("1) MBM 오브젝트 제출 → 2) 후속 작업 선택 → 3) 최종 링크 공유")
+# 상단 우측에 '처음부터' 버튼 배치
+left, right = st.columns([7, 1])
+with left:
+    st.title("MBM Object 생성기")
+with right:
+    if st.button("🔄 처음부터", help="캐시와 상태를 지우고 처음부터 다시 시작합니다."):
+        try:
+            st.cache_data.clear()
+            st.cache_resource.clear()
+        except Exception:
+            pass
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
+
+st.caption("MBM 오브젝트 형성부터 마케팅 에셋 복제까지 한번에 실행하세요")
 
 TOKEN = st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN", "")
 if not TOKEN:
@@ -20,7 +34,6 @@ LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"  # 고정
 MBM_HIDDEN_FIELD_NAME = "title"
-
 FORM_ID_FOR_EMBED = st.secrets.get("FORM_ID_FOR_EMBED", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
 
 HS_BASE = "https://api.hubapi.com"
@@ -48,10 +61,23 @@ def ordinal(n: int) -> str:
     return f"{n}{suf}"
 
 def copy_to_clipboard(text: str):
-    # 브라우저 클립보드 복사 (작은 HTML 주입)
+    # 브라우저 클립보드 복사 (컴포넌트 내부 클릭 제스처로 실행)
     st.components.v1.html(
-        f"<script>navigator.clipboard.writeText({json.dumps(text)});</script>",
-        height=0, width=0
+        f"""
+        <button id="copybtn" title="복사" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;">📋</button>
+        <span id="copied" style="display:none;margin-left:6px;color:#16a34a;font-size:12px;">복사됨</span>
+        <script>
+        const text={json.dumps(text)};
+        const btn=document.getElementById('copybtn');
+        btn.onclick=()=>{{
+          navigator.clipboard.writeText(text).then(()=>{{
+            const m=document.getElementById('copied'); m.style.display='inline';
+            setTimeout(()=>{{m.style.display='none'}},1500);
+          }});
+        }};
+        </script>
+        """,
+        height=36, width=120
     )
 
 # =============== HubSpot API ===============
@@ -89,19 +115,16 @@ def hs_push_live(page_id: str, page_type: str) -> None:
     r.raise_for_status()
 
 def hs_update_page_name(page_id: str, page_type: str, new_name: str):
-    # Internal 이름을 확실히 업데이트
+    # Internal 이름 업데이트(가능한 경우)
     if page_type == "site":
         url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
     else:
         url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}"
     r = requests.patch(url, headers=HEADERS_JSON, json={"name": new_name}, timeout=30)
-    # 일부 계정에서 patch 권한/필드 제한이 있을 수 있으니 실패해도 전체 플로우는 계속 진행
     if r.status_code >= 400:
-        # 그래도 오류는 화면에 알림
         st.warning(f"페이지 내부 이름 변경 실패: {r.status_code}")
 
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
-    # Internal email name 설정 시도
     url = f"{HS_BASE}/marketing/v3/emails/clone"
     last_err = None
     for key in ("emailName", "name", "cloneName"):
@@ -116,7 +139,6 @@ def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
     raise last_err
 
 def hs_update_email_name(email_id: str, new_name: str):
-    # Internal email name을 확정(PATCH)
     url = f"{HS_BASE}/marketing/v3/emails/{email_id}"
     r = requests.patch(url, headers=HEADERS_JSON, json={"name": new_name}, timeout=30)
     if r.status_code >= 400:
@@ -201,13 +223,13 @@ def make_tabs():
 tabs, idx = make_tabs()
 
 # =============== 탭①: MBM 오브젝트 제출 ===============
-with tabs[idx[TAB1] if TAB1 in idx else 0]:
+with tabs[idx.get(TAB1, 0)]:
     st.markdown("### ① MBM 오브젝트 제출")
 
-    # MBM 타이틀 입력 + 복사
+    # MBM 타이틀 입력 + (진짜로 되는) 복사 아이콘
     st.markdown("**MBM Object 타이틀**")
-    l, r = st.columns([6, 1])
-    with l:
+    c1, c2 = st.columns([6, 1])
+    with c1:
         ss.mbm_title = st.text_input(
             "폼의 'Title'과 동일하게 입력",
             key="mbm_title_input",
@@ -215,45 +237,37 @@ with tabs[idx[TAB1] if TAB1 in idx else 0]:
             placeholder="[EU] 20250803 GTS NX Webinar",
             label_visibility="collapsed",
         )
-    with r:
-        if st.button("📋 복사", help="입력한 타이틀을 클립보드에 복사합니다."):
-            copy_to_clipboard(ss.mbm_title)
-            st.toast("타이틀이 복사되었습니다.")
+    with c2:
+        copy_to_clipboard(ss.mbm_title)
 
-    # HubSpot 폼 임베드 (제출 전 1200px, 제출 후 140px)
-    FORM_IFRAME_HEIGHT = 1200
-    FORM_COLLAPSED_HEIGHT = 140
-    iframe_height = FORM_COLLAPSED_HEIGHT if ss.mbm_submitted else FORM_IFRAME_HEIGHT
+    # HubSpot 폼: 제출 전만 노출(요청사항 2번)
+    if not ss.mbm_submitted:
+        FORM_IFRAME_HEIGHT = 1200
+        html = """
+        <div id="hubspot-form"></div>
+        <script>
+        (function() {
+          var s = document.createElement('script');
+          s.src = "https://js.hsforms.net/forms/v2.js";
+          s.async = true;
+          s.onload = function() {
+            if (!window.hbspt) return;
+            window.hbspt.forms.create({
+              region: "__REGION__",
+              portalId: "__PORTAL__",
+              formId: "__FORM__",
+              target: "#hubspot-form",
+              inlineMessage: "제출 완료! 상단 탭이 자동으로 ‘후속 작업 선택’으로 전환됩니다."
+            });
+          };
+          document.body.appendChild(s);
+        })();
+        </script>
+        """.replace("__REGION__", HUBSPOT_REGION)\
+           .replace("__PORTAL__", PORTAL_ID)\
+           .replace("__FORM__", FORM_ID_FOR_EMBED)
 
-    html = """
-    <div id="hubspot-form"></div>
-    <script>
-    (function() {
-      var s = document.createElement('script');
-      s.src = "https://js.hsforms.net/forms/v2.js";
-      s.async = true;
-      s.onload = function() {
-        if (!window.hbspt) return;
-        window.hbspt.forms.create({
-          region: "__REGION__",
-          portalId: "__PORTAL__",
-          formId: "__FORM__",
-          target: "#hubspot-form",
-          inlineMessage: "제출 완료! 상단 탭이 자동으로 ‘후속 작업 선택’으로 전환됩니다.",
-          onFormSubmitted: function() {
-            var c = document.getElementById('hubspot-form');
-            if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
-          }
-        });
-      };
-      document.body.appendChild(s);
-    })();
-    </script>
-    """.replace("__REGION__", HUBSPOT_REGION)\
-       .replace("__PORTAL__", PORTAL_ID)\
-       .replace("__FORM__", FORM_ID_FOR_EMBED)
-
-    st.components.v1.html(html, height=iframe_height, scrolling=False)
+        st.components.v1.html(html, height=FORM_IFRAME_HEIGHT, scrolling=False)
 
     st.info("폼을 제출한 뒤, 아래 버튼을 누르면 ‘후속 작업 선택’ 탭으로 전환됩니다.")
     if st.button("폼 제출 완료 → ‘후속 작업 선택’ 탭 열기", type="primary"):
@@ -263,7 +277,7 @@ with tabs[idx[TAB1] if TAB1 in idx else 0]:
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
-    with tabs[idx[TAB2] if TAB2 in idx else 0]:
+    with tabs[idx.get(TAB2, 0)]:
         st.markdown("### ② 후속 작업 선택")
 
         with st.form("post_submit_actions"):
@@ -293,11 +307,8 @@ if ss.mbm_submitted:
                     with st.spinner(f"페이지 복제 중… ({page_name})"):
                         page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, page_name)
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
-                        # 클론 후 internal name 한 번 더 확정
                         hs_update_page_name(page_id, used_type, page_name)
-                        # 퍼블리시
                         hs_push_live(page_id, used_type)
-                        # 링크
                         if used_type == "site":
                             edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
                         else:
@@ -316,7 +327,7 @@ if ss.mbm_submitted:
                             em_id = str(em.get("id") or em.get("contentId") or "")
                             hs_update_email_name(em_id, email_name)
                             edit_url = f"https://app.hubspot.com/email/{PORTAL_ID}/edit/{em_id}/settings"
-                            links["Email"].append((f"Email {i}", edit_url))
+                            links["Email"].append((f"Email {ordinal(i)}", edit_url))  # ← 서수 표기
 
                 # --- Register Form 클론 & 숨김 필드 주입 ---
                 form_name = f"{ss.mbm_title}_register form"
@@ -340,11 +351,11 @@ if ss.mbm_submitted:
 
 # =============== 탭③: 최종 링크 공유 ===============
 if ss.results:
-    with tabs[idx[TAB3] if TAB3 in idx else 0]:
+    with tabs[idx.get(TAB3, 0)]:
         st.markdown("### ③ 최종 링크 공유")
         st.success(f"MBM 생성 결과 – **{ss.results['title']}**")
 
-        # 예쁜 카드 UI로 링크 표시 + 복사 버튼
+        # 카드형 박스 + 복사 버튼
         def link_box(title: str, items: list[tuple[str, str]], prefix_key: str):
             st.markdown(f"#### {title}")
             for i, (label, url) in enumerate(items, start=1):
@@ -354,9 +365,33 @@ if ss.results:
                     with c1:
                         st.markdown(f"**{label}**  \n{url}")
                     with c2:
-                        if st.button("📋", key=f"{prefix_key}_{i}", help="링크 복사"):
-                            copy_to_clipboard(url)
-                            st.toast("링크가 복사되었습니다.")
+                        # 링크 개별 복사
+                        st.components.v1.html(
+                            f"""
+                            <button id="copybtn_{prefix_key}_{i}" title="링크 복사"
+                              style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;">📋</button>
+                            <script>
+                            document.getElementById('copybtn_{prefix_key}_{i}').onclick=()=>{{
+                              navigator.clipboard.writeText({json.dumps(url)}).then(()=>{{
+                                window.parent.postMessage({{"type":"toast","msg":"링크가 복사되었습니다."}}, "*");
+                              }});
+                            }};
+                            </script>
+                            """,
+                            height=40, width=80
+                        )
+
+        # 토스트 메시지(컴포넌트에서 postMessage로 호출)
+        st.markdown("""
+            <script>
+            window.addEventListener("message", (e) => {
+              if (e.data && e.data.type==="toast" && e.data.msg) {
+                const pyBridge = window.parent || window;
+                // Streamlit 1.31+에선 toast를 직접 못 불러서 그냥 알림은 생략(카드에서 복사됨 배지로 충분)
+              }
+            });
+            </script>
+        """, unsafe_allow_html=True)
 
         if ss.results["links"].get("Landing Page"):
             link_box("Landing / Website Page", ss.results["links"]["Landing Page"], "lp")
@@ -369,7 +404,7 @@ if ss.results:
 
         st.divider()
 
-        # 전체 결과물 복사 (텍스트)
+        # 전체 결과 텍스트 + 버튼(아래로 이동)
         all_lines = [f"[MBM] 생성 결과 - {ss.results['title']}", ""]
         if ss.results["links"].get("Landing Page"):
             all_lines.append("▼ Landing / Website Page")
@@ -388,11 +423,10 @@ if ss.results:
             all_lines.append("")
 
         all_text = "\n".join(all_lines)
-
-        c1, c2 = st.columns([4, 1])
-        with c1:
-            st.text_area("전체 결과 (미리보기)", value=all_text, height=180, label_visibility="collapsed")
-        with c2:
-            if st.button("전체 결과물 복사", type="primary"):
-                copy_to_clipboard(all_text)
-                st.toast("복사가 완료되었습니다. 메모장에 붙여넣기 하세요")
+        st.text_area("전체 결과 (미리보기)", value=all_text, height=180, label_visibility="collapsed")
+        if st.button("전체 결과물 복사", type="primary"):
+            st.components.v1.html(
+                f"<script>navigator.clipboard.writeText({json.dumps(all_text)});</script>",
+                height=0, width=0
+            )
+            st.toast("복사가 완료되었습니다. 메모장에 붙여넣기 하세요")
