@@ -12,7 +12,7 @@ from pathlib import Path
 import streamlit as st
 from PIL import Image, ImageOps
 
-APP_TITLE = "Image Resizer — by Chacha"
+APP_TITLE = "Snap2Size | 이미지 한 장으로 마이다스 이벤트 필요 사이즈를 한방에 추출하세요.⚡"
 VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
 PRESETS = [
