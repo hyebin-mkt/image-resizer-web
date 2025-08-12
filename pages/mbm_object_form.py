@@ -20,17 +20,17 @@ if not TOKEN:
 PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")  # 링크 생성용
 HUBSPOT_REGION = "na1"
 
-# 복제 대상 템플릿/리소스 (페이지/이메일은 secrets에서)
+# 복제 대상 템플릿/리소스
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 
-# ✅ Register Form “템플릿” GUID는 고정값으로 명시 (요청사항)
+# ✅ Register Form “템플릿” GUID (요청사항 고정)
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"
 
 # Register Form 숨김 필드 내부명 (MBM Object의 'Title')
-MBM_HIDDEN_FIELD_NAME    = "title"
+MBM_HIDDEN_FIELD_NAME = "title"
 
-# 상단에 임베드할 “MBM Object Form” (필요시 secrets로 이동 가능)
+# 상단에 임베드할 “MBM Object Form”
 FORM_ID_FOR_EMBED = st.secrets.get("FORM_ID_FOR_EMBED", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
 
 HS_BASE = "https://api.hubapi.com"
@@ -44,25 +44,29 @@ HEADERS_JSON = {
 # 세션 상태 기본값
 # -----------------------
 if "mbm_submitted" not in st.session_state:
-    st.session_state.mbm_submitted = False  # ① 제출 후 탭 ② 노출
+    st.session_state.mbm_submitted = False      # ① 제출 후 탭 ② 노출
 if "mbm_outputs" not in st.session_state:
-    st.session_state.mbm_outputs = None     # ② 실행 후 결과 저장 → 탭 ③ 노출
+    st.session_state.mbm_outputs = None         # ② 실행 후 결과 저장 → 탭 ③ 노출
 
-# =========================================================
-# ===============  헬퍼: 서수 표기(1st/2nd/…)  =============
-# =========================================================
+# -----------------------
+# 헬퍼: 서수(1st/2nd/3rd/…)
+# -----------------------
 def ordinal(n: int) -> str:
     n = int(n)
-    if 10 <= (n % 100) <= 20:  # 11th, 12th, 13th …
+    if 10 <= (n % 100) <= 20:
         suffix = "th"
     else:
-        suffix = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
 
 # =========================================================
 # ===============  1) HubSpot 폼 임베드(탭①)  =============
 # =========================================================
-tab_labels = ["① MBM 오브젝트 생성"]
+# 폼 전체가 스크롤 없이 보이도록 충분히 크게. 필요시 수치만 키워주세요.
+FORM_IFRAME_HEIGHT = 1200       # 제출 전 높이
+FORM_COLLAPSED_HEIGHT = 140     # 제출 후 접힘 높이
+
+tab_labels = ["MBM Object Form"]
 if st.session_state.mbm_submitted:
     tab_labels.append("후속 작업 선택")
 if st.session_state.mbm_outputs:
@@ -70,8 +74,9 @@ if st.session_state.mbm_outputs:
 tabs = st.tabs(tab_labels)
 
 with tabs[0]:
-    st.markdown("##### ① MBM 오브젝트를 먼저 제출하세요")
-    iframe_height = 1200 if st.session_state.mbm_submitted else 420
+    st.markdown("##### ① 폼을 먼저 제출하세요")
+    iframe_height = FORM_COLLAPSED_HEIGHT if st.session_state.mbm_submitted else FORM_IFRAME_HEIGHT
+
     html = """
     <div id="hubspot-form"></div>
     <script>
@@ -89,7 +94,7 @@ with tabs[0]:
           inlineMessage: "제출 완료! 상단 탭에서 ‘후속 작업 선택’으로 이동하세요.",
           onFormSubmitted: function() {
             var c = document.getElementById('hubspot-form');
-            if (c) { c.style.maxHeight = "1200px"; c.style.overflow = "hidden"; }
+            if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
           }
         });
       };
@@ -100,16 +105,17 @@ with tabs[0]:
        .replace("__PORTAL__", PORTAL_ID)\
        .replace("__FORM__", FORM_ID_FOR_EMBED)
 
-    st.components.v1.html(html, height=iframe_height, scrolling=True)
-    st.info("폼을 제출한 뒤 아래 버튼으로 다음 탭을 여세요.")
+    # 스크롤이 생기지 않게 height 크게, scrolling=False
+    st.components.v1.html(html, height=iframe_height, scrolling=False)
+
+    st.info("폼을 제출한 뒤, 아래 버튼을 눌러 다음 단계 탭을 여세요.")
     if st.button("폼 제출 완료 → ‘후속 작업 선택’ 탭 열기", type="primary"):
         st.session_state.mbm_submitted = True
-        st.experimental_rerun()
+        st.rerun()  # ✅ experimental_rerun -> rerun
 
 # =========================================================
 # ===============  서버 함수들 (HubSpot API)  =============
 # =========================================================
-# --- 페이지 클론: Landing → 실패(404) 시 Site로 자동 fallback ---
 def _clone_page(endpoint: str, template_id: str, clone_name: str):
     url = f"{HS_BASE}{endpoint}"
     last_err = None
@@ -142,7 +148,6 @@ def hs_push_live(page_id: str, page_type: str) -> None:
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
-# --- 마케팅 이메일 복제 ---
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/marketing/v3/emails/clone"
     last_err = None
@@ -227,7 +232,7 @@ if st.session_state.mbm_submitted:
     with tabs[1]:
         st.markdown("##### ② 후속 작업 선택")
         with st.form("post_submit_actions"):
-            col1, col2 = st.columns([2,1], gap="large")
+            col1, col2 = st.columns([2, 1], gap="large")
             with col1:
                 st.markdown("**MBM Object 타이틀**")
                 mbm_title = st.text_input(
@@ -252,7 +257,7 @@ if st.session_state.mbm_submitted:
             try:
                 # (3) 페이지(landing 또는 site) 복제 + 퍼블리시
                 if make_lp:
-                    clone_name = f"{mbm_title}_landing page"   # ✅ 규칙 반영
+                    clone_name = f"{mbm_title}_landing page"
                     with st.spinner(f"페이지 복제 중… ({clone_name})"):
                         page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, clone_name)
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
@@ -271,7 +276,7 @@ if st.session_state.mbm_submitted:
                 # (3) 이메일 복제 (횟수, 서수 규칙)
                 if make_em:
                     for i in range(1, int(email_count) + 1):
-                        clone_name = f"{mbm_title}_email_{ordinal(i)}"  # ✅ 규칙 반영
+                        clone_name = f"{mbm_title}_email_{ordinal(i)}"
                         with st.spinner(f"마케팅 이메일 복제 중… ({clone_name})"):
                             em = hs_clone_marketing_email(EMAIL_TEMPLATE_ID, clone_name)
                             em_id = str(em.get("id") or em.get("contentId") or "")
@@ -279,7 +284,7 @@ if st.session_state.mbm_submitted:
                             created_links["Email"].append(email_edit_url)
 
                 # (6) Register Form 복제 + 숨김 필드 defaultValue = MBM 타이틀
-                form_name = f"{mbm_title}_register form"       # ✅ 규칙 반영
+                form_name = f"{mbm_title}_register form"
                 with st.spinner(f"Register Form 복제 중… ({form_name})"):
                     new_form = clone_form_with_hidden_value(
                         REGISTER_FORM_TEMPLATE_GUID, form_name, mbm_title, MBM_HIDDEN_FIELD_NAME
@@ -289,28 +294,23 @@ if st.session_state.mbm_submitted:
                     created_links["Form"].append(form_edit_url)
 
                 # (4)(7) 링크 요약 텍스트
-                lines = []
-                lines.append(f"[MBM] 생성 결과 - {mbm_title}")
-                lines.append("")
+                lines = [f"[MBM] 생성 결과 - {mbm_title}", ""]
                 if created_links["Landing Page"]:
                     lines.append("▼ Landing / Website Page")
-                    for u in created_links["Landing Page"]:
-                        lines.append(f"- {u}")
+                    lines += [f"- {u}" for u in created_links["Landing Page"]]
                     lines.append("")
                 if created_links["Email"]:
                     lines.append("▼ Marketing Emails")
-                    for idx, u in enumerate(created_links["Email"], start=1):
-                        lines.append(f"- Email {idx}: {u}")
+                    lines += [f"- Email {idx}: {u}" for idx, u in enumerate(created_links["Email"], start=1)]
                     lines.append("")
                 if created_links["Form"]:
                     lines.append("▼ Register Form")
-                    for u in created_links["Form"]:
-                        lines.append(f"- {u}")
+                    lines += [f"- {u}" for u in created_links["Form"]]
                     lines.append("")
 
                 st.session_state.mbm_outputs = "\n".join(lines)
                 st.success("생성이 완료됐습니다. 상단의 ‘후속 작업 산출물’ 탭에서 결과를 복사하세요.")
-                st.experimental_rerun()
+                st.rerun()  # ✅ experimental_rerun -> rerun
 
             except requests.HTTPError as http_err:
                 st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
