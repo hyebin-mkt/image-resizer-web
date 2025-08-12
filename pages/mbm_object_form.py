@@ -62,7 +62,7 @@ def ordinal(n: int) -> str:
 # =========================================================
 # ===============  1) HubSpot 폼 임베드(탭①)  =============
 # =========================================================
-tab_labels = ["MBM Object Form"]
+tab_labels = ["① MBM 오브젝트 생성"]
 if st.session_state.mbm_submitted:
     tab_labels.append("후속 작업 선택")
 if st.session_state.mbm_outputs:
@@ -70,7 +70,7 @@ if st.session_state.mbm_outputs:
 tabs = st.tabs(tab_labels)
 
 with tabs[0]:
-    st.markdown("##### ① 폼을 먼저 제출하세요")
+    st.markdown("##### ① MBM 오브젝트를 먼저 제출하세요")
     iframe_height = 120 if st.session_state.mbm_submitted else 420
     html = """
     <div id="hubspot-form"></div>
