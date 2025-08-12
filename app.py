@@ -91,20 +91,20 @@ def feedback_ui():
     gh_repo  = st.secrets.get("GH_REPO")  # 예: "hyebin-mkt/image-resizer-web"
 
     if not gh_token or not gh_repo:
-    st.info(
-    """**관리자 안내:** Streamlit Secrets에 `GH_TOKEN`, `GH_REPO`를 설정하면
-    여기서 접수된 내용이 GitHub Issues로 자동 저장됩니다.
+        st.info(
+            """**관리자 안내:** Streamlit Secrets에 `GH_TOKEN`, `GH_REPO`를 설정하면
+여기서 접수된 내용이 GitHub Issues로 자동 저장됩니다.
 
-    - GH_TOKEN: 해당 레포에 Issues 작성 권한이 있는 Personal Access Token
-    - GH_REPO: 예) `owner/repo`  (본인 저장소 경로)
+- GH_TOKEN: 해당 레포에 Issues 작성 권한이 있는 Personal Access Token
+- GH_REPO: 예) `owner/repo`  (본인 저장소 경로)
 
-    Secrets가 설정되지 않으면 사용자에겐 이 안내만 보입니다."""
-    )
-
-    return
-
+Secrets가 설정되지 않으면 사용자에겐 이 안내만 보입니다."""
+        )
+        return
 
     tab1, tab2 = st.tabs(["💬 댓글달기", "❓ 문의하기"])
+    # ... 이하 동일
+
 
     with tab1:
         with st.form("form_praise"):
