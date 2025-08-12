@@ -1,20 +1,17 @@
-# pages/mbm-object-form.py
+# pages/mbm_object_form.py
 import streamlit as st
 
-# 브라우저 탭 제목/아이콘
 st.set_page_config(page_title="MBM Object 생성기", page_icon="📄", layout="centered")
-
-# 본문 타이틀(사이드바 라벨은 파일명 기준이라 따로 표시)
 st.title("MBM Object 생성기")
 st.caption("MBM/Campaign 생성 요청을 접수합니다.")
 
-# HubSpot Embed (요구사항: 하드코딩)
+# HubSpot 설정(하드코딩)
 HUBSPOT_REGION = "na1"
 PORTAL_ID = "2495902"
-FORM_ID   = "a9e1a5e8-4c46-461f-b823-13cc4772dc6c"
+FORM_ID = "a9e1a5e8-4c46-461f-b823-13cc4772dc6c"
 
-# 최소 스타일(원치 않으면 styles 블록 통째로 지워도 됩니다)
-html = f"""
+# f-string/중괄호 충돌 방지를 위해 평문 + replace 사용
+html = """
 <div id="hubspot-form"></div>
 
 <!-- 제출 후 후속 선택 UI (처음엔 숨김) -->
@@ -31,20 +28,18 @@ html = f"""
 
 <script>
 (function() {{
-  // HubSpot 폼 로드
   var s = document.createElement('script');
   s.src = "https://js.hsforms.net/forms/v2.js";
   s.async = true;
   s.onload = function() {{
     if (!window.hbspt) return;
     window.hbspt.forms.create({{
-      region: "{HUBSPOT_REGION}",
-      portalId: "{PORTAL_ID}",
-      formId: "{FORM_ID}",
+      region: "__REGION__",
+      portalId: "__PORTAL_ID__",
+      formId: "__FORM_ID__",
       target: "#hubspot-form",
       inlineMessage: "MBM/Campaign Object가 자동으로 생성되었습니다. 각 오브젝트의 링크를 메일로 보내드릴게요.",
       onFormSubmitted: function() {{
-        // 제출 성공 후 후속 UI 표시
         var actions = document.getElementById('post-actions');
         if (actions) actions.style.display = 'block';
       }}
@@ -60,7 +55,7 @@ html = f"""
     }}
   }});
 
-  // 생성하기 클릭 (⚠️ 여기서 실제 API/워크플로우 연동 예정)
+  // 생성하기 클릭 (※ 실제 HubSpot 템플릿 복제 연동은 추후)
   document.addEventListener('click', function(e){{
     if (e.target && e.target.id === 'do-create') {{
       var payload = {{
@@ -71,52 +66,11 @@ html = f"""
       console.log('post-submit selections', payload);
       var res = document.getElementById('create-result');
       res.style.display = 'block';
-      res.textContent = "요청을 접수했습니다. (API 연동 필요)";
+      res.textContent = "요청을 접수했습니다. (API/워크플로우 연동 필요)";
     }}
   }});
 }})();
 </script>
-"""
+""".replace("__REGION__", HUBSPOT_REGION)   .replace("__PORTAL_ID__", PORTAL_ID)   .replace("__FORM_ID__", FORM_ID)
 
-<script>
-(function() {{
-  var s = document.createElement('script');
-  s.src = "https://js.hsforms.net/forms/v2.js";
-  s.async = true;
-  s.onload = function() {{
-    if (!window.hbspt) return;
-    window.hbspt.forms.create({{
-      region: "{HUBSPOT_REGION}",
-      portalId: "{PORTAL_ID}",
-      formId: "{FORM_ID}",
-      target: "#hubspot-form",
-      inlineMessage: "MBM/Campaign Object가 자동으로 생성되었습니다. 각 오브젝트의 링크를 메일로 보내드릴게요."
-      // redirectUrl: "https://one-shot-image.streamlit.app/?page=mbm-object-form" // 필요시 사용
-    }});
-  }};
-  document.body.appendChild(s);
-}})();
-</script>
-"""
-
-st.components.v1.html(html, height=900, scrolling=True)
-
-st.divider()
-
-
-# ====== (선택) 후속 작업 UI 골격 ======
-with st.expander("폼 제출 후 선택 옵션 (선택 사항)"):
-    make_landing = st.checkbox("랜딩페이지 생성")
-    make_email   = st.checkbox("이메일 생성")
-    email_count  = 0
-    if make_email:
-        email_count = st.number_input("이메일 발송 횟수", min_value=1, step=1, value=1)
-
-    # 실제 생성(복제)은 HubSpot API/워크플로우 연동이 필요합니다.
-    if st.button("생성하기", type="primary"):
-        # TODO: 여기에서 HubSpot Private App Token으로
-        # 1) 랜딩페이지 템플릿 복제
-        # 2) 마케팅 이메일 템플릿 복제
-        # 3) 이름 규칙: "{MBM Object 타이틀}_Landing Page" 등으로 적용
-        # 를 호출하세요.
-        st.success("요청을 접수했습니다. (템플릿 복제 로직 연동 필요)")
+st.components.v1.html(html, height=950, scrolling=True)
