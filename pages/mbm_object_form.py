@@ -4,35 +4,10 @@ import requests
 import streamlit as st
 
 # =============== 페이지 & 상단 바 ===============
-st.set_page_config(page_title="MBM Object 생성기", page_icon="📄", layout="centered")
+st.set_page_config(page_title="🧚🏻‍♂️ MBM Magic Wizard", page_icon="📄", layout="centered")
 
-# 상단: 타이틀 + 예쁜 Refresh 버튼(아이콘+Refresh)
-c_title, c_refresh = st.columns([7, 1])
-with c_title:
-    st.title("MBM Object 생성기")
-with c_refresh:
-    # 더 예쁜 버튼을 위한 약간의 스타일
-    st.markdown("""
-        <style>
-        .refresh-btn button{
-            border: 1px solid #e5e7eb; border-radius: 10px; background: #ffffff;
-            padding: 0.45rem 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06);
-        }
-        .refresh-btn button:hover{ background:#f9fafb; }
-        </style>
-    """, unsafe_allow_html=True)
-    with st.container():
-        if st.button("🔁 아이콘+Refresh", key="refresh_btn", help="캐시/상태를 초기화합니다.", type="secondary"):
-            try:
-                st.cache_data.clear()
-                st.cache_resource.clear()
-            except Exception:
-                pass
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
-            st.rerun()
-
-st.caption("MBM 오브젝트 형성부터 마케팅 에셋 복제까지 한번에 실행하세요")
+st.title("🧚🏻‍♂️ MBM Magic Wizard")
+st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 실행하세요")
 
 # 전역 스타일: 탭은 항상 오른쪽으로 “늘어나는” 것처럼 보이게
 st.markdown("""
