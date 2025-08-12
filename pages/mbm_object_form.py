@@ -1,5 +1,4 @@
 # pages/mbm_object_form.py
-import os
 import requests
 import streamlit as st
 
@@ -11,29 +10,26 @@ st.title("MBM Object 생성기")
 st.caption("1) MBM Object Form 제출 → 2) 옵션 선택 → 3) 자동 복제 & 링크 요약")
 
 # -----------------------
-# 고정 값 (당신이 제공한 값)
-# -----------------------
-PORTAL_ID = "2495902"                    # 편집 링크 생성용
-HUBSPOT_REGION = "na1"
-
-# (3) 복제 대상 템플릿
-LANDING_PAGE_TEMPLATE_ID = "192676141393"
-EMAIL_TEMPLATE_ID        = "162882078001"
-FORM_TEMPLATE_GUID       = "83e40756-9929-401f-901b-8e77830d38cf"
-
-# (6) Register Form 숨김 필드 내부명 (MBM Object의 'Title')
-MBM_HIDDEN_FIELD_NAME    = "title"
-
-# (1) 화면 상단에 임베드할 MBM Object Form (※ 이미 당신이 쓰는 폼이면 GUID 바꿔도 됨)
-FORM_ID_FOR_EMBED = "a9e1a5e8-4c46-461f-b823-13cc4772dc6c"
-
-# -----------------------
-# HubSpot Private App Token (필수)
+# 설정값 (secrets + 안전한 기본값)
 # -----------------------
 TOKEN = st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN", "")
 if not TOKEN:
     st.error("Streamlit Secrets에 HUBSPOT_PRIVATE_APP_TOKEN이 없습니다.")
     st.stop()
+
+PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")  # 편집/미리보기 링크 생성용
+HUBSPOT_REGION = "na1"
+
+# 복제 대상 템플릿/리소스
+LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
+EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
+FORM_TEMPLATE_GUID       = st.secrets.get("FORM_TEMPLATE_GUID", "83e40756-9929-401f-901b-8e77830d38cf")
+
+# Register Form 숨김 필드 내부명 (MBM Object의 'Title')
+MBM_HIDDEN_FIELD_NAME    = "title"
+
+# 화면 상단에 임베드할 MBM Object Form (원하면 secrets로 옮겨도 됨)
+FORM_ID_FOR_EMBED = st.secrets.get("FORM_ID_FOR_EMBED", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -45,8 +41,7 @@ HEADERS_JSON = {
 # =========================================================
 # ===============  1) HubSpot 폼 임베드(컴팩트)  ==========
 # =========================================================
-# 요구사항: 제출 후 화면 공백 길어지는 문제 → 전체 iframe 높이를 500px 이하(여기선 420px)로 고정
-# 폼이 길면 내부 스크롤(스크롤링=True)로 처리
+# 제출 후 폼 영역 공백을 최소화: iframe 높이 고정(420px) + 컨테이너 접기
 html = """
 <div id="hubspot-form"></div>
 <script>
@@ -63,12 +58,8 @@ html = """
       target: "#hubspot-form",
       inlineMessage: "제출 완료! 아래 옵션에서 랜딩/이메일/등록폼 복제를 선택하세요.",
       onFormSubmitted: function() {
-        // 폼 영역 자체를 접어서 내부 여백을 최소화(iframe 높이는 420px로 고정)
         var c = document.getElementById('hubspot-form');
-        if (c) {
-          c.style.maxHeight = "120px";
-          c.style.overflow = "hidden";
-        }
+        if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
       }
     });
   };
@@ -88,11 +79,8 @@ st.divider()
 
 # --- (3) 랜딩페이지 복제 + 퍼블리시 ---
 def hs_clone_landing_page(template_id: str, clone_name: str) -> dict:
-    """
-    POST /cms/v3/pages/landing-pages/clone
-    일부 계정은 payload 키가 name/cloneName 둘 다 동작해요. 둘 다 시도.
-    """
     url = f"{HS_BASE}/cms/v3/pages/landing-pages/clone"
+    last_err = None
     for key in ("name", "cloneName"):
         try:
             r = requests.post(url, headers=HEADERS_JSON,
@@ -102,23 +90,17 @@ def hs_clone_landing_page(template_id: str, clone_name: str) -> dict:
             return r.json()
         except requests.HTTPError as e:
             last_err = e
-    raise last_err  # 둘 다 실패 시
+    raise last_err
 
 def hs_push_live_landing_page(page_id: str) -> None:
-    """
-    POST /cms/v3/pages/landing-pages/{pageId}/draft/push-live
-    """
     url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}/draft/push-live"
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
 # --- (3) 마케팅 이메일 복제 ---
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
-    """
-    POST /marketing/v3/emails/clone
-    일부 계정: emailName, 일부: name/cloneName 허용 → 순차 시도
-    """
     url = f"{HS_BASE}/marketing/v3/emails/clone"
+    last_err = None
     for key in ("emailName", "name", "cloneName"):
         try:
             r = requests.post(url, headers=HEADERS_JSON,
@@ -140,7 +122,6 @@ def hs_get_form_v2(form_guid: str) -> dict:
     return r.json()
 
 def _strip_field_for_create(field: dict) -> dict:
-    # v2 create 호환을 위해 안전한 키만 남김
     ALLOWED = {
         "name","label","type","fieldType","required","hidden","defaultValue",
         "placeholder","validation","displayAsCheckbox","options","description","inlineHelpText"
@@ -191,7 +172,6 @@ def clone_form_with_hidden_value(template_guid: str, new_name: str, hidden_value
         "redirect": tpl.get("redirect", ""),
         "submitText": tpl.get("submitText", "Submit"),
         "formFieldGroups": groups,
-        # 필요 시 thankYouMessage/notifyRecipients 등 추가
     }
     return hs_create_form_v2(payload)
 
@@ -233,8 +213,7 @@ if submitted:
             with st.spinner(f"랜딩페이지 복제 중… ({clone_name})"):
                 lp = hs_clone_landing_page(LANDING_PAGE_TEMPLATE_ID, clone_name)
                 lp_id = str(lp.get("id") or lp.get("objectId") or "")
-                # 퍼블리시
-                hs_push_live_landing_page(lp_id)
+                hs_push_live_landing_page(lp_id)  # 퍼블리시
                 edit_url   = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{lp_id}/edit"
                 public_url = lp.get("url") or lp.get("publicUrl") or ""
                 created_links["Landing Page"].append(edit_url)
@@ -264,7 +243,7 @@ if submitted:
             created_links["Form"].append(form_edit_url)
         st.success("Register Form 복제 완료")
 
-        # (4)(7) 링크 요약 텍스트 생성 (복사하기 편하게)
+        # (4)(7) 링크 요약 텍스트 (복사하기 편하게)
         lines = []
         lines.append(f"[MBM] 생성 결과 - {mbm_title}")
         lines.append("")
@@ -285,10 +264,8 @@ if submitted:
             lines.append("")
 
         summary_text = "\n".join(lines)
-
         st.success("✅ 생성 완료! 아래 텍스트를 복사해서 영업팀에 공유하세요.")
-        # st.code 는 자동 'Copy' 버튼이 제공됨
-        st.code(summary_text, language=None)
+        st.code(summary_text, language=None)  # Copy 버튼 제공
 
     except requests.HTTPError as http_err:
         st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
