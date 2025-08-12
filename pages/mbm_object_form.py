@@ -42,13 +42,6 @@ st.components.v1.html(html, height=900, scrolling=True)
 
 st.divider()
 
-with st.sidebar:
-
-    st.subheader("🔗 바로가기")
-    sidebar_quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
-    sidebar_quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
-    sidebar_quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view?utm_content=DAGtMIVovm8&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9b120a74ea")
-    st.write("© Chacha")
 
 # ====== (선택) 후속 작업 UI 골격 ======
 with st.expander("폼 제출 후 선택 옵션 (선택 사항)"):
