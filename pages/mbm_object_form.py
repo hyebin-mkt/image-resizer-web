@@ -89,7 +89,7 @@ with tabs[0]:
           inlineMessage: "제출 완료! 상단 탭에서 ‘후속 작업 선택’으로 이동하세요.",
           onFormSubmitted: function() {
             var c = document.getElementById('hubspot-form');
-            if (c) { c.style.maxHeight = "120px"; c.style.overflow = "hidden"; }
+            if (c) { c.style.maxHeight = "1200px"; c.style.overflow = "hidden"; }
           }
         });
       };
