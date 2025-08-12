@@ -92,13 +92,15 @@ def feedback_ui():
 
     if not gh_token or not gh_repo:
     st.info(
-        """**관리자 안내:** Streamlit Secrets에 `GH_TOKEN`, `GH_REPO`를 설정하면 여기서 접수된 내용이 GitHub Issues로 자동 저장됩니다.
+    """**관리자 안내:** Streamlit Secrets에 `GH_TOKEN`, `GH_REPO`를 설정하면
+    여기서 접수된 내용이 GitHub Issues로 자동 저장됩니다.
 
     - GH_TOKEN: 해당 레포에 Issues 작성 권한이 있는 Personal Access Token
     - GH_REPO: 예) `owner/repo`  (본인 저장소 경로)
 
     Secrets가 설정되지 않으면 사용자에겐 이 안내만 보입니다."""
     )
+
     return
 
 
@@ -213,8 +215,8 @@ if uploaded:
 
     # Custom sizes: one per line: "Label, WxH"
     st.markdown("**커스텀 사이즈 (선택)** — 한 줄에 하나씩 `라벨, WxH` 형식으로 입력하세요. 예: `SNS, 1080x1080`")
-    custom_text = st.text_area("예: Banner 2, 1200x630
-Square, 1080x1080", height=120)
+    custom_text = st.text_area("""예: Banner 2, 1200x630
+    Square, 1080x1080""", height=120)
     custom_targets = []
     if custom_text.strip():
         for line in custom_text.splitlines():
