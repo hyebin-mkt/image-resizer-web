@@ -77,9 +77,15 @@ st.divider()
 # ===============  서버 함수들 (HubSpot API)  =============
 # =========================================================
 
-# --- (3) 랜딩페이지 복제 + 퍼블리시 ---
-def hs_clone_landing_page(template_id: str, clone_name: str) -> dict:
-    url = f"{HS_BASE}/cms/v3/pages/landing-pages/clone"
+# --- (3) 페이지 클론: Landing → 실패 시 Site로 자동 fallback ---
+def _clone_page(endpoint: str, template_id: str, clone_name: str):
+    """
+    공통 클론 호출. endpoint 예:
+      - /cms/v3/pages/landing-pages/clone
+      - /cms/v3/pages/site-pages/clone
+    바디 키는 name/cloneName 모두 시도.
+    """
+    url = f"{HS_BASE}{endpoint}"
     last_err = None
     for key in ("name", "cloneName"):
         try:
@@ -92,8 +98,31 @@ def hs_clone_landing_page(template_id: str, clone_name: str) -> dict:
             last_err = e
     raise last_err
 
-def hs_push_live_landing_page(page_id: str) -> None:
-    url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}/draft/push-live"
+def hs_clone_page_auto(template_id: str, clone_name: str):
+    """
+    우선 Landing Page로 시도 → 404면 Site Page로 재시도.
+    반환: (response_json, used_type)  used_type ∈ {"landing","site"}
+    """
+    try:
+        data = _clone_page("/cms/v3/pages/landing-pages/clone", template_id, clone_name)
+        return data, "landing"
+    except requests.HTTPError as e:
+        # landing에서 404 → site로 재시도
+        if e.response is not None and e.response.status_code == 404:
+            data = _clone_page("/cms/v3/pages/site-pages/clone", template_id, clone_name)
+            return data, "site"
+        raise
+
+def hs_push_live(page_id: str, page_type: str) -> None:
+    """
+    type에 맞는 push-live 호출
+      - landing: /cms/v3/pages/landing-pages/:id/draft/push-live
+      - site   : /cms/v3/pages/site-pages/:id/draft/push-live
+    """
+    if page_type == "site":
+        url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}/draft/push-live"
+    else:
+        url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}/draft/push-live"
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
@@ -190,7 +219,7 @@ with st.form("post_submit_actions"):
         )
     with col2:
         st.markdown("#### 생성할 자산")
-        make_lp = st.checkbox("랜딩페이지 복제", value=True)
+        make_lp = st.checkbox("랜딩/웹페이지 복제", value=True)
         make_em = st.checkbox("이메일 복제", value=True)
         email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
 
@@ -207,19 +236,25 @@ if submitted:
     created_links = {"Landing Page": [], "Email": [], "Form": []}
 
     try:
-        # (3) 랜딩페이지 복제 + 퍼블리시
+        # (3) 페이지(landing 또는 site) 복제 + 퍼블리시
         if make_lp:
             clone_name = f"{mbm_title}_Landing Page"
-            with st.spinner(f"랜딩페이지 복제 중… ({clone_name})"):
-                lp = hs_clone_landing_page(LANDING_PAGE_TEMPLATE_ID, clone_name)
-                lp_id = str(lp.get("id") or lp.get("objectId") or "")
-                hs_push_live_landing_page(lp_id)  # 퍼블리시
-                edit_url   = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{lp_id}/edit"
-                public_url = lp.get("url") or lp.get("publicUrl") or ""
+            with st.spinner(f"페이지 복제 중… ({clone_name})"):
+                page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, clone_name)
+                page_id = str(page_data.get("id") or page_data.get("objectId") or "")
+                hs_push_live(page_id, used_type)  # 타입에 맞게 퍼블리시
+
+                # 편집/공개 링크
+                if used_type == "site":
+                    edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
+                else:
+                    edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{page_id}/edit"
+                public_url = page_data.get("url") or page_data.get("publicUrl") or ""
+
                 created_links["Landing Page"].append(edit_url)
                 if public_url:
                     created_links["Landing Page"].append(public_url)
-            st.success("랜딩페이지 복제 완료")
+            st.success("페이지 복제 완료")
 
         # (3) 이메일 복제 (횟수)
         if make_em:
@@ -248,7 +283,7 @@ if submitted:
         lines.append(f"[MBM] 생성 결과 - {mbm_title}")
         lines.append("")
         if created_links["Landing Page"]:
-            lines.append("▼ Landing Page")
+            lines.append("▼ Landing / Website Page")
             for u in created_links["Landing Page"]:
                 lines.append(f"- {u}")
             lines.append("")
