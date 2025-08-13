@@ -10,6 +10,17 @@ st.set_page_config(page_title="MBM Magic Wizard", page_icon="🧚🏻‍♂", la
 st.title("MBM Magic Wizard")
 st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
 
+# --- Session state bootstrap (필수) ---
+ss = st.session_state
+ss.setdefault("active_stage", 1)      # 1=제출, 2=선택, 3=공유
+ss.setdefault("mbm_submitted", False)
+ss.setdefault("mbm_title", "")
+ss.setdefault("results", None)        # {"title": str, "links": {...}}
+# (필요 시) 검색/선택 관련 기본값
+ss.setdefault("search_done", False)
+ss.setdefault("selected_mbm_id", None)
+
+
 # ----- sidebar identical style -----
 def sidebar_quick_link(label: str, url: str):
     st.sidebar.markdown(
@@ -215,28 +226,24 @@ def _focus_tab(label: str):
     )
 
 def make_tabs():
-    # 어떤 단계든 최소 TAB1은 항상 보이게
     labels = [TAB1]
-    if ss.mbm_submitted:
+    if ss.get("mbm_submitted", False):
         labels.append(TAB2)
-    if ss.results:
+    if ss.get("results") is not None:
         labels.append(TAB3)
 
-    # Streamlit 구버전 호환: key 인자 쓰지 마세요
+    # Streamlit 구버전 호환: key 인자 쓰지 않음
     t = st.tabs(labels)
-
     idx = {label: i for i, label in enumerate(labels)}
 
-    # 단계 전환 시 자동 포커스
-    if ss.active_stage == 2 and TAB2 in idx:
+    stage = ss.get("active_stage", 1)
+    if stage == 2 and TAB2 in idx:
         _focus_tab(TAB2)
-    elif ss.active_stage == 3 and TAB3 in idx:
+    elif stage == 3 and TAB3 in idx:
         _focus_tab(TAB3)
 
     return t, idx
 
-
-tabs, idx = make_tabs()
 
 # --------------------------------------------------
 # ① MBM 오브젝트 제출
