@@ -182,7 +182,9 @@ def make_tabs():
         labels.append(TAB2)
     if ss.active_stage >= 3 and ss.results:
         labels.append(TAB3)
-    t = st.tabs(labels, key="mbm_tabs_v2")
+    if not labels:
+    labels = [TAB1]
+    t = st.tabs(labels)   # key 인자 제거
     idx = {label: i for i, label in enumerate(labels)}
     if ss.active_stage == 2 and TAB2 in idx:
         _focus_tab(TAB2)
