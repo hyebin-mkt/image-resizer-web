@@ -75,7 +75,7 @@ def ensure_rgb(img: Image.Image, bg=(255, 255, 255)) -> Image.Image:
     return img.convert("RGB") if img.mode != "RGB" else img
 
 # ---------- page ----------
-st.set_page_config(page_title=APP_TITLE, page_icon="⭐", layout="centered")
+st.set_page_config(page_title="원샷원킬 배너 생성기", page_icon="⭐", layout="centered")
 st.title(APP_TITLE)
 st.caption("이미지 하나로 마이다스 이벤트에 필요한 사이즈를 한방에 추출하세요")
 
