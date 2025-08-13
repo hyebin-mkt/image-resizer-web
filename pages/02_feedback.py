@@ -82,24 +82,34 @@ if not gh_token or not gh_repo:
     st.stop()
 
 # ===== 새 댓글(=새 이슈) =====
-st.markdown("### ✍️ 새 댓글 남기기")
-with st.form("fb_new_issue", border=True):
+with st.form("new_comment"):
+    # ✅ 이름 입력 추가
+    display_name = st.text_input("이름(표시용)")
     email = st.text_input("이메일(표시용)")
-    content = st.text_area("댓글", height=120, placeholder="내용을 작성하세요.")
-    ok = st.form_submit_button("게시", type="primary")
-    if ok:
-        if not content.strip():
-            st.error("댓글 내용을 입력해주세요.")
+    msg = st.text_area("댓글", height=180, placeholder="내용을 작성하세요.")
+    posted = st.form_submit_button("게시")
+
+    if posted:
+        if not msg.strip():
+            st.error("내용을 입력해주세요.")
         else:
-            title = f"[커뮤니티] {content.strip()[:40]}"
             now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-            body = f"**작성자:** {email or '-'}\n**시간(UTC):** {now}\n\n{content}"
-            res = create_issue(gh_repo, gh_token, title, body, labels=["community"])
-            if 200 <= res.status_code < 300:
-                st.success("등록되었습니다.")
-                st.experimental_rerun()
+            first_line = msg.strip().splitlines()[0][:40] if msg.strip() else "무제"
+            title = f"[커뮤니티] {first_line}"
+            body = f"""{msg}
+
+---
+
+**이름(표시용)**: {display_name or "-"}
+**이메일(표시용)**: {email or "-"}
+**시간(UTC)**: {now}
+"""
+            r = create_issue(GH_REPO, GH_TOKEN, title, body, labels=["커뮤니티"])
+            if 200 <= r.status_code < 300:
+                st.success("등록되었습니다! 아래 목록에서 확인하세요.")
             else:
-                st.error(f"실패: {res.status_code} - {res.text}")
+                st.error(f"전송 실패: {r.status_code} - {r.text}")
+
 
 st.divider()
 
