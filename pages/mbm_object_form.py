@@ -282,23 +282,52 @@ TAB2 = "후속 작업 선택"
 TAB3 = "최종 링크 공유"
 
 def _focus_tab(label: str):
-    # 렌더 직후 해당 라벨 탭을 자동 클릭하여 전환
-    st.components.v1.html(f"""
-    <script>
-    (function(){{
-      function clickTab(){{
-        const tabs = window.parent.document.querySelectorAll('[role="tab"]');
-        for (const t of tabs) {{
-          const txt = (t.innerText || "").trim();
-          if (txt.indexOf("{label}") !== -1) {{ t.click(); return; }}
-        }}
-      }}
-      setTimeout(clickTab, 50);
-      setTimeout(clickTab, 250);
-      setTimeout(clickTab, 500);
-    }})();
-    </script>
-    """, height=0, width=0)
+    # 렌더 타이밍 이슈 대비: 최대 ~4초 동안 200ms 간격 재시도 + MutationObserver
+    import json as _json
+    safe_label = _json.dumps(label)
+    st.components.v1.html(
+        f"""
+        <script>
+        (function(){{
+          const targetText = {safe_label};
+          function clickTarget(root) {{
+            const tabs = root.querySelectorAll('[role="tab"]');
+            for (const t of tabs) {{
+              const txt = (t.innerText || t.textContent || "").trim();
+              if (txt === targetText || txt.indexOf(targetText) !== -1) {{
+                t.click(); return true;
+              }}
+            }}
+            return false;
+          }}
+          function tryClick() {{
+            const doc = window.parent?.document || document;
+            if (clickTarget(doc)) return true;
+            // iframe 내부까지 시도
+            const frames = doc.querySelectorAll('iframe');
+            for (const f of frames) {{
+              try {{
+                if (f.contentDocument && clickTarget(f.contentDocument)) return true;
+              }} catch (e) {{}}
+            }}
+            return false;
+          }}
+          let attempts = 0;
+          const id = setInterval(() => {{
+            attempts++;
+            if (tryClick() || attempts >= 20) clearInterval(id); // 20회 = 약 4초
+          }}, 200);
+          // DOM 변경 감지로 추가 시도
+          const targetDoc = window.parent?.document || document;
+          const obs = new MutationObserver(() => tryClick());
+          obs.observe(targetDoc, {{subtree:true, childList:true}});
+          setTimeout(()=>obs.disconnect(), 5000);
+        }})();
+        </script>
+        """,
+        height=0, width=0
+    )
+
 
 def make_tabs():
     labels = [TAB1]
@@ -306,14 +335,14 @@ def make_tabs():
         labels.append(TAB2)
     if ss.results:
         labels.append(TAB3)
-    t = st.tabs(labels)
+    t = st.tabs(labels, key="mbm_tabs")  # ← key 추가
     idx = {label: i for i, label in enumerate(labels)}
-    # 자동 포커스
     if ss.active_stage == 2 and TAB2 in idx:
         _focus_tab(TAB2)
     elif ss.active_stage == 3 and TAB3 in idx:
         _focus_tab(TAB3)
     return t, idx
+
 
 tabs, idx = make_tabs()
 
