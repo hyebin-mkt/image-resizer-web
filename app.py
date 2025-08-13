@@ -177,4 +177,3 @@ else:
 
 # 하단 바로가기/푸터
 st.markdown('<div style="height:60px"></div>', unsafe_allow_html=True)
-render_footer_links()
