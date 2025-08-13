@@ -53,9 +53,10 @@ with st.sidebar:
         if st.button("접속"):
             if pwd == ACCESS_PASSWORD:
                 ss.auth_ok = True
-                st.experimental_rerun()
+                st.rerun()   # ← 여기! st.experimental_rerun() 대신 st.rerun()
             else:
                 st.error("암호가 일치하지 않습니다.")
+
 
 if not ss.auth_ok:
     st.stop()
