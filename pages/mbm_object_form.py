@@ -737,8 +737,8 @@ with tabs[idx[TAB1]]:
                 if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
                     ss.prop_step += 1; st.rerun()
 
-        # ---- (버튼: 중앙 80% 폭) ----
-        gap_l, main, gap_r = st.columns([1, 8, 1])
+        # ---- (버튼: 중앙 100% 폭) ----
+        gap_l, main, gap_r = st.columns([1, 10, 1])
         with main:
             if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
                 payload = {"title": ss.mbm_title}
