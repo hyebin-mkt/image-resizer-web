@@ -16,6 +16,8 @@ if not TOKEN:
 
 PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
 HUBSPOT_REGION = "na1"
+
+# Website Page 템플릿 ID (Secrets 키 이름은 기존 그대로 사용)
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"  # 고정
@@ -63,46 +65,30 @@ def copy_button(text: str, key: str):
     )
 
 # =============== HubSpot API ===============
-def _clone_page(endpoint: str, template_id: str, clone_name: str):
-    url = f"{HS_BASE}{endpoint}"
-    last_err = None
+# --- Website Page 전용 클론/이름변경/퍼블리시 ---
+def hs_clone_site_page(template_id: str, clone_name: str) -> dict:
+    """POST /cms/v3/pages/site-pages/clone"""
+    url = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
+    last = None
     for key in ("name", "cloneName"):
-        try:
-            r = requests.post(url, headers=HEADERS_JSON,
-                              json={"id": str(template_id), key: clone_name},
-                              timeout=45)
-            r.raise_for_status()
+        r = requests.post(url, headers=HEADERS_JSON, json={"id": str(template_id), key: clone_name}, timeout=45)
+        if r.status_code < 400:
             return r.json()
-        except requests.HTTPError as e:
-            last_err = e
-    raise last_err
+        last = r
+    last.raise_for_status()
 
-def hs_clone_page_auto(template_id: str, clone_name: str):
-    try:
-        data = _clone_page("/cms/v3/pages/landing-pages/clone", template_id, clone_name)
-        return data, "landing"
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            data = _clone_page("/cms/v3/pages/site-pages/clone", template_id, clone_name)
-            return data, "site"
-        raise
-
-def hs_push_live(page_id: str, page_type: str) -> None:
-    if page_type == "site":
-        url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}/draft/push-live"
-    else:
-        url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}/draft/push-live"
-    r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
-    r.raise_for_status()
-
-def hs_update_page_name(page_id: str, page_type: str, new_name: str):
-    if page_type == "site":
-        url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
-    else:
-        url = f"{HS_BASE}/cms/v3/pages/landing-pages/{page_id}"
+def hs_update_site_page_name(page_id: str, new_name: str) -> None:
+    """PATCH /cms/v3/pages/site-pages/{id}"""
+    url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
     r = requests.patch(url, headers=HEADERS_JSON, json={"name": new_name}, timeout=30)
     if r.status_code >= 400:
         st.warning(f"페이지 내부 이름 변경 실패: {r.status_code}")
+
+def hs_push_live_site(page_id: str) -> None:
+    """POST /cms/v3/pages/site-pages/{id}/draft/push-live"""
+    url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}/draft/push-live"
+    r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
+    r.raise_for_status()
 
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/marketing/v3/emails/clone"
@@ -287,7 +273,7 @@ if ss.mbm_submitted:
                 st.text_input("MBM Title", value=ss.mbm_title, disabled=True, label_visibility="collapsed")
             with c2:
                 st.markdown("**생성할 자산**")
-                make_lp = st.checkbox("랜딩/웹페이지 복제", value=True)
+                make_lp = st.checkbox("웹페이지 복제", value=True)  # Website 전용
                 make_em = st.checkbox("이메일 복제", value=True)
                 email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
 
@@ -298,25 +284,22 @@ if ss.mbm_submitted:
                 st.error("① 탭에서 MBM 오브젝트 타이틀을 입력하세요.")
                 st.stop()
 
-            links = {"Landing Page": [], "Email": [], "Form": []}
+            links = {"Website Page": [], "Email": [], "Form": []}
 
             try:
-                # 페이지 클론 & 내부명 업데이트 & 퍼블리시
+                # Website Page 클론 & 내부명 업데이트 & 퍼블리시
                 if make_lp:
-                    page_name = f"{ss.mbm_title}_landing page"
-                    with st.spinner(f"페이지 복제 중… ({page_name})"):
-                        page_data, used_type = hs_clone_page_auto(LANDING_PAGE_TEMPLATE_ID, page_name)
+                    page_name = f"{ss.mbm_title}_landing page"  # 네이밍 규칙 유지
+                    with st.spinner(f"웹페이지 복제 중… ({page_name})"):
+                        page_data = hs_clone_site_page(LANDING_PAGE_TEMPLATE_ID, page_name)
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
-                        hs_update_page_name(page_id, used_type, page_name)
-                        hs_push_live(page_id, used_type)
-                        if used_type == "site":
-                            edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
-                        else:
-                            edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/pages/{page_id}/edit"
+                        hs_update_site_page_name(page_id, page_name)
+                        hs_push_live_site(page_id)
+                        edit_url   = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
                         public_url = page_data.get("url") or page_data.get("publicUrl") or ""
-                        links["Landing Page"].append(("편집", edit_url))
+                        links["Website Page"].append(("편집", edit_url))
                         if public_url:
-                            links["Landing Page"].append(("공개", public_url))
+                            links["Website Page"].append(("공개", public_url))
 
                 # 이메일 N개 클론 & 내부명 업데이트
                 if make_em:
@@ -366,8 +349,8 @@ if ss.results:
                     with c2:
                         copy_button(url, key=f"{prefix_key}_{i}_{uuid.uuid4()}")
 
-        if ss.results["links"].get("Landing Page"):
-            link_box("Landing / Website Page", ss.results["links"]["Landing Page"], "lp")
+        if ss.results["links"].get("Website Page"):
+            link_box("Website Page", ss.results["links"]["Website Page"], "lp")
 
         if ss.results["links"].get("Email"):
             link_box("Marketing Emails", ss.results["links"]["Email"], "em")
@@ -379,9 +362,9 @@ if ss.results:
 
         # 전체 결과 텍스트 + 복사 버튼(아래)
         all_lines = [f"[MBM] 생성 결과 - {ss.results['title']}", ""]
-        if ss.results["links"].get("Landing Page"):
-            all_lines.append("▼ Landing / Website Page")
-            for label, url in ss.results["links"]["Landing Page"]:
+        if ss.results["links"].get("Website Page"):
+            all_lines.append("▼ Website Page")
+            for label, url in ss.results["links"]["Website Page"]:
                 all_lines.append(f"- {label}: {url}")
             all_lines.append("")
         if ss.results["links"].get("Email"):
