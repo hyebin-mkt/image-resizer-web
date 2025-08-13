@@ -20,14 +20,14 @@ HUBSPOT_REGION = "na1"
 # Website Page 템플릿 ID (Secrets 키 이름은 기존 그대로 사용)
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
 # (백업) 템플릿 '제목'으로 자동 검색할 때 사용 — UI로는 노출하지 않음
-WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "[Landing Page Template] YYMMDD_MBM Title")
+WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "")
 
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"  # 고정
 MBM_HIDDEN_FIELD_NAME = "title"
 FORM_ID_FOR_EMBED = st.secrets.get("FORM_ID_FOR_EMBED", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
 
-# 사이드바 접근 제어(요청 3)
+# 사이드바 접근 제어
 ACCESS_PASSWORD = "mid@sit0901"
 
 HS_BASE = "https://api.hubapi.com"
@@ -36,6 +36,9 @@ HEADERS_JSON = {
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
+
+# (옵션) 진단용 표시
+DEBUG = bool(st.secrets.get("DEBUG", False))
 
 # =============== 세션 상태 ===============
 ss = st.session_state
@@ -53,10 +56,11 @@ with st.sidebar:
         if st.button("접속"):
             if pwd == ACCESS_PASSWORD:
                 ss.auth_ok = True
-                st.rerun()   # ← 여기! st.experimental_rerun() 대신 st.rerun()
+                st.rerun()
             else:
                 st.error("암호가 일치하지 않습니다.")
-
+    if DEBUG:
+        st.caption(f"DEBUG: template_id={LANDING_PAGE_TEMPLATE_ID}, title_hint={WEBSITE_PAGE_TEMPLATE_TITLE or '(none)'}")
 
 if not ss.auth_ok:
     st.stop()
@@ -127,11 +131,11 @@ def extract_best_live_url(page_json: dict) -> str | None:
             return val.strip()
     return None
 
-# ---- site-pages 목록 검색(템플릿 제목으로 ID 찾기; UI 표시 없이 자동 백업) ----
-def find_site_page_id_by_title_exact(title: str) -> str | None:
+# ---- Website pages 목록 검색 (제목/키워드로 자동 해결) ----
+def list_site_pages(limit_per_page: int = 100):
     after = None
     while True:
-        params = {"limit": 100}
+        params = {"limit": limit_per_page}
         if after:
             params["after"] = after
         r = requests.get(f"{HS_BASE}/cms/v3/pages/site-pages", headers=HEADERS_JSON, params=params, timeout=30)
@@ -139,20 +143,54 @@ def find_site_page_id_by_title_exact(title: str) -> str | None:
         data = r.json()
         items = data.get("results") or data.get("items") or []
         for it in items:
-            name = (it.get("name") or "").strip()
-            if name == title.strip():
-                return str(it.get("id") or it.get("objectId") or "")
+            yield it
         after = (data.get("paging") or {}).get("next", {}).get("after")
         if not after:
             break
+
+def find_site_page_id_smart(title_hint: str | None) -> str | None:
+    """
+    우선순위:
+    1) title_hint가 있으면 name/pageTitle/htmlTitle의 '정확 일치'
+    2) 그렇지 않으면 name에 'template' 포함 + ('mbm' or 'landing' or 'webinar') 포함
+    """
+    title_hint = (title_hint or "").strip()
+    # 1) 정확 일치
+    if title_hint:
+        for it in list_site_pages():
+            name = (it.get("name") or "").strip()
+            page_title = (it.get("pageTitle") or it.get("htmlTitle") or "").strip()
+            if name == title_hint or page_title == title_hint:
+                return str(it.get("id") or it.get("objectId") or "")
+    # 2) 키워드 기반 best guess
+    best = None
+    best_score = -1
+    for it in list_site_pages():
+        text = " ".join([
+            (it.get("name") or ""),
+            (it.get("pageTitle") or ""),
+            (it.get("htmlTitle") or "")
+        ]).lower()
+        score = 0
+        if "template" in text: score += 2
+        if "mbm" in text: score += 2
+        if "landing" in text: score += 1
+        if "webinar" in text: score += 1
+        if score > best_score:
+            best_score = score
+            best = it
+    if best and best_score > 0:
+        return str(best.get("id") or best.get("objectId") or "")
     return None
 
-def clone_site_page_with_fallback(primary_id: str, clone_name: str, title_backup: str | None) -> dict:
+def clone_site_page_with_fallback(primary_id: str, clone_name: str, title_hint: str | None) -> dict:
+    # 먼저 ID로 시도
     try:
         return hs_clone_site_page(primary_id, clone_name)
     except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404 and title_backup:
-            resolved = find_site_page_id_by_title_exact(title_backup)
+        # 404면 스마트 검색으로 템플릿 ID 자동 해결
+        if e.response is not None and e.response.status_code == 404:
+            resolved = find_site_page_id_smart(title_hint)
             if resolved:
                 return hs_clone_site_page(resolved, clone_name)
         raise
@@ -362,7 +400,7 @@ if ss.mbm_submitted:
                         page_data = clone_site_page_with_fallback(
                             LANDING_PAGE_TEMPLATE_ID,
                             page_name,
-                            WEBSITE_PAGE_TEMPLATE_TITLE  # UI 없이 자동 백업 검색
+                            WEBSITE_PAGE_TEMPLATE_TITLE  # UI 없이 자동 검색 힌트
                         )
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         hs_update_site_page_name(page_id, page_name)
@@ -378,7 +416,7 @@ if ss.mbm_submitted:
                             # 퍼블릭 URL이 아직 없으면 내부 보기 링크를 제공(접속 가능한 단일 링크)
                             live_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/view"
 
-                        # 요청 2: Website Page는 "접속 가능한 링크 하나만" 제공
+                        # Website Page는 "접속 가능한 링크 하나만" 제공
                         links["Website Page"].append(("보기", live_url))
 
                 # 이메일 N개 클론 & 내부명 업데이트
