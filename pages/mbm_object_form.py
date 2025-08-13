@@ -1,13 +1,5 @@
 # pages/mbm_object_form.py
 # 🧚🏻‍♂️ MBM Magic Wizard — MBM 오브젝트 검색/생성 → 후속자산 자동화
-# 주요 시크릿:
-# - HUBSPOT_PRIVATE_APP_TOKEN : Private App Token
-# - PORTAL_ID                 : 허브스팟 포탈 ID (예: "2495902")
-# - MBM_OBJECT_TYPE_ID        : (권장) 예: "2-10432789" 형태의 오브젝트 타입 ID
-# - MBM_OBJECT_URL            : (선택) 예: "https://app.hubspot.com/contacts/2495902/objects/2-10432789/views/all/list"
-# - TEMPLATE_SITE_PAGE_TITLE  : (선택) 사이트 페이지 템플릿 내부이름 (기본 "[Template] Event Landing Page_GOM")
-# - EMAIL_TEMPLATE_ID         : (선택) 마케팅 이메일 템플릿 ID
-# - FORM_TEMPLATE_GUID        : (선택) 복제할 Register Form GUID
 
 import json, re, uuid, datetime
 import requests
@@ -37,11 +29,11 @@ HEADERS_JSON = {
     "Accept": "application/json",
 }
 
-# 템플릿(선택사항: 없으면 스킵 가능)
+# 템플릿(선택사항)
 TEMPLATE_SITE_PAGE_TITLE = st.secrets.get("TEMPLATE_SITE_PAGE_TITLE", "[Template] Event Landing Page_GOM")
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID",        "")
 FORM_TEMPLATE_GUID       = st.secrets.get("FORM_TEMPLATE_GUID",       "")
-MBM_HIDDEN_FIELD_NAME    = "title"   # Register Form 숨김 필드명
+MBM_HIDDEN_FIELD_NAME    = "title"
 HUBSPOT_REGION           = "na1"
 
 # -----------------------
@@ -53,7 +45,7 @@ ss.setdefault("mbm_object_id", "")        # 선택/생성된 MBM ID
 ss.setdefault("mbm_title", "")            # 선택/생성된 MBM Title
 ss.setdefault("search_keyword", "")
 ss.setdefault("search_results", [])       # [(id,title)]
-ss.setdefault("search_choice", "")        # 사용자가 선택한 값
+ss.setdefault("search_choice", "")        # 사용자가 드롭다운에서 고른 기존 오브젝트 id
 ss.setdefault("results_links", None)      # {"Landing Page":[(label,url)...], "Email":[...], "Form":[...]}
 
 # -----------------------
@@ -61,7 +53,6 @@ ss.setdefault("results_links", None)      # {"Landing Page":[(label,url)...], "E
 # -----------------------
 st.markdown("""
 <style>
-.mbm-copy-row{ display:flex; gap:8px; align-items:center; }
 .mbm-copy-btn{
   border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer;
   width:36px; height:36px; display:flex; align-items:center; justify-content:center;
@@ -108,22 +99,20 @@ def render_pagination(cur: int, total: int, key: str="pg"):
 # MBM Object Type ID 해석
 # -----------------------
 def resolve_mbm_object_type_id() -> str:
-    # 1) secrets 우선
     obj_id = (st.secrets.get("MBM_OBJECT_TYPE_ID") or "").strip()
     if obj_id:
         return obj_id
-    # 2) MBM_OBJECT_URL 시크릿에서 파싱
     url_hint = (st.secrets.get("MBM_OBJECT_URL") or "").strip()
     if url_hint:
         m = re.search(r"/objects/([^/]+)/", url_hint)
         if m:
             return m.group(1)
-    # 3) schemas API로 "MBM" 찾기
+    # schemas API로 "MBM" 찾기
     try:
         u = f"{HS_BASE}/crm/v3/schemas"
         r = requests.get(u, headers=HEADERS_JSON, timeout=30)
         if r.status_code == 403:
-            st.warning("스키마 조회 권한이 없습니다. Private App 스코프에 `crm.schemas.custom.read` 추가 또는 MBM_OBJECT_TYPE_ID 시크릿을 설정하세요.")
+            st.warning("스키마 조회 권한이 없습니다. Private App 스코프에 `crm.schemas.custom.read` 추가 또는 MBM_OBJECT_TYPE_ID/URL 시크릿 설정 필요.")
             return ""
         r.raise_for_status()
         for s in r.json().get("results", []):
@@ -139,6 +128,7 @@ def resolve_mbm_object_type_id() -> str:
 MBM_OBJECT_TYPE_ID = resolve_mbm_object_type_id()
 if not MBM_OBJECT_TYPE_ID:
     st.info("⚠️ MBM Object Type ID를 찾지 못했습니다. 시크릿에 `MBM_OBJECT_TYPE_ID` 또는 `MBM_OBJECT_URL`을 설정해 주세요.")
+
 # -----------------------
 # 스키마(프로퍼티) 조회
 # -----------------------
@@ -181,15 +171,10 @@ def to_hs_value(prop: dict, py_value):
 # MBM 오브젝트 검색/생성 API
 # -----------------------
 def hs_search_mbm_by_title(query: str, limit=12):
-    """CRM Search — title 기반 키워드 검색."""
     if not MBM_OBJECT_TYPE_ID:
         return []
     u = f"{HS_BASE}/crm/v3/objects/{MBM_OBJECT_TYPE_ID}/search"
-    payload = {
-        "query": query,
-        "properties": ["title"],
-        "limit": limit,
-    }
+    payload = {"query": query, "properties": ["title"], "limit": limit}
     r = requests.post(u, headers=HEADERS_JSON, json=payload, timeout=30)
     if r.status_code == 404:
         return []
@@ -203,7 +188,6 @@ def hs_search_mbm_by_title(query: str, limit=12):
     return results
 
 def hs_create_mbm(properties: dict):
-    """MBM 오브젝트 생성 (권한 부족 시 친절 메시지)."""
     if not MBM_OBJECT_TYPE_ID:
         raise RuntimeError("MBM Object Type ID가 없어 생성할 수 없습니다.")
     u = f"{HS_BASE}/crm/v3/objects/{MBM_OBJECT_TYPE_ID}"
@@ -218,7 +202,6 @@ def hs_create_mbm(properties: dict):
 # CMS/Email/Form 유틸 (필요 시 사용)
 # -----------------------
 def find_site_template_by_title(title: str):
-    """사이트 페이지 목록에서 name 매칭으로 템플릿 찾기."""
     try:
         u = f"{HS_BASE}/cms/v3/pages/site-pages?limit=100"
         r = requests.get(u, headers=HEADERS_JSON, timeout=30); r.raise_for_status()
@@ -230,15 +213,15 @@ def find_site_template_by_title(title: str):
     return None
 
 def clone_site_page(template_id: str, new_name: str):
-    """사이트 페이지 복제"""
     u = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
-    for key in ("name", "cloneName"):
+    last=None
+    for key in ("name","cloneName"):
         try:
             r = requests.post(u, headers=HEADERS_JSON, json={"id": str(template_id), key: new_name}, timeout=45)
             r.raise_for_status()
             return r.json()
         except requests.HTTPError as e:
-            last = e
+            last=e
     raise last
 
 def push_live_site_page(page_id: str):
@@ -248,14 +231,14 @@ def push_live_site_page(page_id: str):
 
 def clone_marketing_email(template_id: str, new_name: str):
     u = f"{HS_BASE}/marketing/v3/emails/clone"
-    last = None
+    last=None
     for key in ("emailName","name","cloneName"):
         try:
             r = requests.post(u, headers=HEADERS_JSON, json={"id": str(template_id), key: new_name}, timeout=45)
             r.raise_for_status()
             return r.json()
         except requests.HTTPError as e:
-            last = e
+            last=e
     raise last
 
 def forms_get_v2(guid: str):
@@ -272,23 +255,17 @@ def forms_create_v2(payload: dict):
 
 def clone_register_form_with_hidden(template_guid: str, name: str, hidden_value: str, hidden_field_name: str="title"):
     t = forms_get_v2(template_guid)
-    groups = []
+    groups=[]
     for g in t.get("formFieldGroups", []):
-        flds = []
+        flds=[]
         for f in g.get("fields", []):
             keep = {k: f[k] for k in f.keys() if k in {"name","label","type","fieldType","required","hidden","defaultValue","options","placeholder","validation","inlineHelpText","description"}}
-            if keep.get("name") == hidden_field_name:
-                keep["hidden"] = True
-                keep["defaultValue"] = hidden_value
+            if keep.get("name")==hidden_field_name:
+                keep["hidden"]=True
+                keep["defaultValue"]=hidden_value
             flds.append(keep)
         groups.append({"fields": flds})
-    payload = {
-        "name": name,
-        "method": t.get("method","POST"),
-        "redirect": t.get("redirect",""),
-        "submitText": t.get("submitText","Submit"),
-        "formFieldGroups": groups,
-    }
+    payload={"name":name,"method":t.get("method","POST"),"redirect":t.get("redirect",""),"submitText":t.get("submitText","Submit"),"formFieldGroups":groups}
     return forms_create_v2(payload)
 
 # -----------------------
@@ -324,11 +301,11 @@ def make_tabs():
 tabs, idx = make_tabs()
 
 # =========================================================
-# ① MBM 오브젝트 제출 — "검색 → 선택 or 새로 생성"
+# ① MBM 오브젝트 제출 — "검색 → 기존 선택" + "드롭다운 아래 새로 생성"
 # =========================================================
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
-    st.markdown("**MBM 오브젝트 타이틀**을 기존에서 검색해서 선택하거나, 새로 생성할 수 있어요.")
+    st.markdown("**MBM 오브젝트 타이틀**을 기준에서 검색해서 선택하거나, 새로 생성할 수 있어요.")
 
     with st.form("search_form", border=True):
         c1, c2 = st.columns([5,1])
@@ -346,50 +323,54 @@ with tabs[idx[TAB1]]:
             except Exception as e:
                 st.error(f"검색 실패: {e}")
 
-    # 검색 결과 드롭다운 + 새로 만들기 옵션
+    # 드롭다운: 기존 오브젝트만 표시
     if ss.search_keyword.strip():
-        opts = [(f'➕ "{ss.search_keyword}" 로 새 오브젝트 생성', "__create_new__")]
-        for oid, ttl in (ss.search_results or []):
-            opts.append((f'{ttl}  ·  #{oid}', oid))
-        labels = [x[0] for x in opts]
-        values = [x[1] for x in opts]
-        choice = st.selectbox("결과에서 선택", labels, index=0 if labels else None)
-        if choice:
-            ss.search_choice = values[labels.index(choice)]
+        labels = [f'{ttl}  ·  #{oid}' for oid, ttl in (ss.search_results or [])]
+        values = [oid for oid, _ in (ss.search_results or [])]
+        if labels:
+            sel = st.selectbox("결과에서 선택", labels, index=0)
+            ss.search_choice = values[labels.index(sel)]
+        else:
+            st.info("검색 결과가 없습니다.")
 
-        # 다음 단계
-        go = st.button("다음 ▶")
-        if go:
-            try:
-                if ss.search_choice == "__create_new__":
-                    # 새 오브젝트 생성 (title 만 셋팅)
-                    props = {"title": ss.search_keyword.strip()}
-                    created = hs_create_mbm(props)
+        # 드롭다운 아래 — 새로 생성 버튼 + 다음 버튼
+        colA, colB = st.columns([1,1])
+        with colA:
+            if st.button(f'➕ "{ss.search_keyword}" 로 새 오브젝트 생성', type="secondary"):
+                try:
+                    created = hs_create_mbm({"title": ss.search_keyword.strip()})
                     ss.mbm_object_id = created.get("id")
                     ss.mbm_title     = ss.search_keyword.strip()
                     st.success(f"새 MBM 오브젝트 생성 완료: #{ss.mbm_object_id}")
-                else:
-                    # 기존 오브젝트 선택
-                    sel_id = ss.search_choice
-                    if not sel_id:
-                        st.error("목록에서 하나를 선택하세요.")
-                        st.stop()
-                    ss.mbm_object_id = str(sel_id)
-                    # 타이틀 찾아서 저장 (검색 결과에서 재활용)
-                    sel = next(((i,t) for i,t in ss.search_results if str(i)==str(sel_id)), None)
-                    if sel:
-                        ss.mbm_title = sel[1]
-                ss.active_stage = 2
-                st.experimental_rerun()
-            except requests.HTTPError as e:
-                st.error(f"HubSpot API 오류: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                st.error(f"실패: {e}")
+                except requests.HTTPError as e:
+                    st.error(f"HubSpot API 오류: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    st.error(f"실패: {e}")
+
+        with colB:
+            if st.button("다음 ▶", type="primary"):
+                try:
+                    if ss.mbm_object_id:
+                        ss.active_stage = 2
+                        st.rerun()
+                    elif ss.search_choice:
+                        # 기존 오브젝트 선택 후 다음
+                        sel_id = str(ss.search_choice)
+                        ss.mbm_object_id = sel_id
+                        # 제목은 검색결과에서 찾아 저장
+                        sel = next(((i,t) for i,t in ss.search_results if str(i)==sel_id), None)
+                        ss.mbm_title = sel[1] if sel else ss.search_keyword.strip()
+                        ss.active_stage = 2
+                        st.rerun()
+                    else:
+                        st.error("목록에서 하나를 선택하거나, 새 오브젝트를 먼저 생성하세요.")
+                except Exception as e:
+                    st.error(f"실패: {e}")
 
 # =========================================================
 # ② 후속 작업 선택 — 페이지/메일/폼 생성(선택)
 # =========================================================
-if ss.mbm_object_id:
+if ss.mbm_object_id and (TAB2 in idx):
     with tabs[idx[TAB2]]:
         st.markdown("### ② 후속 작업 선택")
         with st.form("post_actions", border=True):
@@ -445,7 +426,7 @@ if ss.mbm_object_id:
                 ss.results_links = links
                 ss.active_stage  = 3
                 st.success("생성 완료! ‘최종 링크 공유’ 탭으로 이동합니다.")
-                st.experimental_rerun()
+                st.rerun()
 
             except requests.HTTPError as e:
                 st.error(f"HubSpot API 오류: {e.response.status_code} - {e.response.text}")
@@ -455,7 +436,7 @@ if ss.mbm_object_id:
 # =========================================================
 # ③ 최종 링크 공유 — 카드형 + 전체 복사
 # =========================================================
-if ss.results_links:
+if ss.results_links and (TAB3 in idx):
     with tabs[idx[TAB3]]:
         st.markdown("### ③ 최종 링크 공유")
         st.success(f"MBM 생성 결과 – **{ss.mbm_title}**")
@@ -481,7 +462,6 @@ if ss.results_links:
             link_box("Register Form", ss.results_links["Form"], "fm")
 
         st.divider()
-        # 전체 텍스트
         lines=[f"[MBM] 생성 결과 - {ss.mbm_title}",""]
         if ss.results_links.get("Landing Page"):
             lines.append("▼ Landing / Website Page")
