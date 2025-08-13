@@ -6,9 +6,47 @@ import streamlit as st
 # --------------------------------------------------
 # 기본 페이지 헤더
 # --------------------------------------------------
-st.set_page_config(page_title="🧚🏻‍♂️ MBM Magic Wizard", page_icon="📄", layout="centered")
-st.title("🧚🏻‍♂️ MBM Magic Wizard")
+st.set_page_config(page_title="MBM Magic Wizard", page_icon="🧚🏻‍♂", layout="centered")
+st.title("MBM Magic Wizard")
 st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
+
+# ----- sidebar identical style -----
+def sidebar_quick_link(label: str, url: str):
+    st.sidebar.markdown(
+        f'''
+<a href="{url}" target="_blank" style="text-decoration:none;">
+  <div style="
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px; margin:6px 0;
+      border:1px solid #e5e7eb; border-radius:12px;
+      background:#fff; transition:all .15s ease;">
+    <span style="font-weight:600; color:#111827;">{label}</span>
+    <span style="font-size:14px; color:#6b7280;">↗</span>
+  </div>
+</a>
+''',
+        unsafe_allow_html=True
+    )
+
+with st.sidebar:
+    st.subheader("바로가기")
+    sidebar_quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
+    sidebar_quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
+    sidebar_quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view?utm_content=DAGtMIVovm8&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9b120a74ea")
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] .sidebar-copyright{
+      position: sticky; bottom: 18px; margin-top: 24px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.sidebar.markdown(
+        '<div class="sidebar-copyright" style="color:#6b7280; font-size:12px;">'
+        '© Chacha · <a href="mailto:chb0218@midasit.com" style="color:#6b7280; text-decoration:none;">chb0218@midasit.com</a>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
 
 # --------------------------------------------------
 # 필수 시크릿
@@ -177,20 +215,26 @@ def _focus_tab(label: str):
     )
 
 def make_tabs():
+    # 어떤 단계든 최소 TAB1은 항상 보이게
     labels = [TAB1]
-    if ss.active_stage >= 2:
+    if ss.mbm_submitted:
         labels.append(TAB2)
-    if ss.active_stage >= 3 and ss.results:
+    if ss.results:
         labels.append(TAB3)
-    if not labels:
-    labels = [TAB1]
-    t = st.tabs(labels)   # key 인자 제거
+
+    # Streamlit 구버전 호환: key 인자 쓰지 마세요
+    t = st.tabs(labels)
+
     idx = {label: i for i, label in enumerate(labels)}
+
+    # 단계 전환 시 자동 포커스
     if ss.active_stage == 2 and TAB2 in idx:
         _focus_tab(TAB2)
     elif ss.active_stage == 3 and TAB3 in idx:
         _focus_tab(TAB3)
+
     return t, idx
+
 
 tabs, idx = make_tabs()
 
