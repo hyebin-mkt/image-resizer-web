@@ -3,7 +3,7 @@ import datetime
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="💬 Feedback", page_icon="💬", layout="centered")
+st.set_page_config(page_title="Feedback", page_icon="💬", layout="centered")
 st.title("💬 Feedback")
 st.caption("커뮤니티 형식의 댓글/대댓글 공간입니다. (GitHub Issues 기반)")
 
