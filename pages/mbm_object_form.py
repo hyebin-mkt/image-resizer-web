@@ -72,6 +72,7 @@ LONG_TEXT_FIELDS = {
 # =============== 세션 상태 ===============
 ss = st.session_state
 ss.setdefault("auth_ok", False)         # 접근 허용 여부
+ss.setdefault("auth_error", False)      # 접근 오류 플래그(입력란 아래 노출)
 ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
 ss.setdefault("mbm_submitted", False)   # ① 완료 여부 (MBM 생성 완료 or 스킵)
 ss.setdefault("mbm_title", "")
@@ -79,23 +80,33 @@ ss.setdefault("show_prop_form", False)  # ① 타이틀 다음 → 상세 폼 �
 ss.setdefault("results", None)          # {"title": str, "links": dict}
 ss.setdefault("mbm_object", None)       # {"id": "...", "typeId": "...", "url": "record url"}
 
-# =============== 본문 접근 암호 (사이드바 X, 본문에 표시) ===============
+# =============== 본문 접근 암호 (입력란 아래에 에러 표시) ===============
 if not ss.auth_ok:
     box = st.container(border=True)
     with box:
         st.subheader("🔒 Access")
         st.caption("해당 기능은 마이다스아이티 구성원만 입력이 가능합니다. MBM 에셋 생성을 위해 비밀번호를 입력해주세요.")
-        colp1, colp2 = st.columns([5, 1])
-        with colp1:
-            pwd = st.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비밀번호를 입력하세요")
-        with colp2:
-            if st.button("접속", use_container_width=True):
-                if pwd == ACCESS_PASSWORD:
-                    ss.auth_ok = True
-                    st.rerun()
-                else:
-                    st.error("암호가 일치하지 않습니다.")
-                    st.info("도움말: 사내 공지 메일 또는 관리자에게 문의해주세요.")
+
+        # 입력칸 바로 아래에 에러/도움말이 뜨도록 form으로 구성
+        with st.form("access_gate"):
+            pwd = st.text_input(
+                "비밀번호", type="password",
+                label_visibility="collapsed",
+                placeholder="비밀번호를 입력하세요"
+            )
+            if ss.auth_error:
+                st.error("암호가 일치하지 않습니다.")
+                st.help("도움말: 사내 공지 메일 또는 관리자에게 문의해주세요.")
+            submitted = st.form_submit_button("접속", use_container_width=True)
+
+        if submitted:
+            if pwd == ACCESS_PASSWORD:
+                ss.auth_ok = True
+                ss.auth_error = False
+                st.rerun()
+            else:
+                ss.auth_error = True
+                st.rerun()
     st.stop()
 
 # =============== 유틸 ===============
@@ -464,14 +475,24 @@ with tabs[idx[TAB1]]:
     with cc:
         st.empty()
 
-    # 1-2) 상세 속성 폼 (타이틀 제출 후 표시) — 스키마 기반 위젯
+    # 1-2) 상세 속성 폼 (타이틀 제출 후 표시) — 스키마 기반 위젯 (+403 폴백)
     if ss.show_prop_form and not ss.mbm_submitted:
         st.markdown("---")
         st.markdown("#### MBM 오브젝트 세부 항목")
 
-        # 스키마 메타 불러오기
+        # 스키마 메타 불러오기 (403/401 → 경고 후 폴백)
         try:
             props_map = get_mbm_properties_map()
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else None
+            if code in (401, 403):
+                st.warning(
+                    "스키마 조회 권한이 없어 기본 입력 위젯으로 표시합니다. "
+                    "관리자에게 Private App 권한에 **crm.schemas.read**(CRM Schemas Read)을 추가 요청하세요."
+                )
+            else:
+                st.error(f"스키마 로드 실패: {e}")
+            props_map = {}
         except Exception as e:
             st.error(f"스키마 로드 실패: {e}")
             props_map = {}
@@ -571,7 +592,7 @@ if ss.mbm_submitted:
         if submitted_actions:
             links = {"Website Page": [], "Email": [], "Form": []}
             try:
-                # Website Page
+                # Website Page (편집 링크로 제공)
                 if make_wp:
                     page_name = f"{ss.mbm_title}_landing page"
                     with st.spinner(f"웹페이지 복제 중… ({page_name})"):
@@ -581,12 +602,8 @@ if ss.mbm_submitted:
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         hs_update_site_page_name(page_id, page_name)
                         hs_push_live_site(page_id)
-                        try:
-                            refreshed = hs_get_site_page(page_id)
-                        except Exception:
-                            refreshed = page_data
-                        live_url = extract_best_live_url(refreshed) or f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/view"
-                        links["Website Page"].append(("보기", live_url))
+                        edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
+                        links["Website Page"].append(("편집", edit_url))
 
                 # Emails
                 if make_em:
