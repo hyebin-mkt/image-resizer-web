@@ -29,7 +29,7 @@ REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"
 
 # MBM 오브젝트 기본 설정
 MBM_HIDDEN_FIELD_NAME = "title"  # Register Form 숨김 필드 이름
-ACCESS_PASSWORD = "mid@sit0901"  # 사이드바 보호
+ACCESS_PASSWORD = "mid@sit0901"  # 본문 접근 보호 비밀번호
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -38,29 +38,64 @@ HEADERS_JSON = {
     "Accept": "application/json",
 }
 
+# 스키마에서 보여줄 필드(요청하신 내부명 순서)
+MBM_FIELDS = [
+    "title",
+    "country",
+    "mbm_type",
+    "city",
+    "location",
+    "mbm_start_date",
+    "mbm_finish_date",
+    "target_audience",
+    "description_of_detailed_targets___________",
+    "purpose_of_mbm",
+    "expected_earnings",
+    "product__midas_",
+    "campaign_key_item",
+    "market_conditions",
+    "pain_point_of_target",
+    "benefits",
+]
+# 항상 숨김 + True로 전송
+MBM_HIDDEN_TRUE = "auto_generate_campaign"
+
+# 긴 텍스트로 표시할 후보
+LONG_TEXT_FIELDS = {
+    "description_of_detailed_targets___________",
+    "purpose_of_mbm",
+    "market_conditions",
+    "pain_point_of_target",
+    "benefits",
+}
+
 # =============== 세션 상태 ===============
 ss = st.session_state
-ss.setdefault("auth_ok", False)
-ss.setdefault("active_stage", 1)      # 1=제출, 2=선택, 3=공유
-ss.setdefault("mbm_submitted", False) # ① 완료 여부 (MBM 오브젝트 생성 완료)
+ss.setdefault("auth_ok", False)         # 접근 허용 여부
+ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
+ss.setdefault("mbm_submitted", False)   # ① 완료 여부 (MBM 오브젝트 생성 완료 또는 스킵)
 ss.setdefault("mbm_title", "")
-ss.setdefault("show_prop_form", False) # ① 내부에서: 타이틀 '다음' 누르면 상세 폼 표시
-ss.setdefault("results", None)         # {"title": str, "links": dict}
-ss.setdefault("mbm_object", None)      # {"id": "...", "typeId": "...", "url": "record url"}
+ss.setdefault("show_prop_form", False)  # ① 내부에서: 타이틀 '다음' 누르면 상세 폼 표시
+ss.setdefault("results", None)          # {"title": str, "links": dict}
+ss.setdefault("mbm_object", None)       # {"id": "...", "typeId": "...", "url": "record url"}
 
-# =============== 사이드바 암호 확인 ===============
-with st.sidebar:
-    st.header("🔒 Access")
-    if not ss.auth_ok:
-        pwd = st.text_input("암호 입력", type="password", placeholder="비밀번호를 입력하세요")
-        if st.button("접속"):
-            if pwd == ACCESS_PASSWORD:
-                ss.auth_ok = True
-                st.rerun()
-            else:
-                st.error("암호가 일치하지 않습니다.")
-
+# =============== 본문 접근 암호 (사이드바 X, 본문에 표시) ===============
 if not ss.auth_ok:
+    box = st.container(border=True)
+    with box:
+        st.subheader("🔒 Access")
+        st.caption("해당 기능은 마이다스아이티 구성원만 입력이 가능합니다. MBM 에셋 생성을 위해 비밀번호를 입력해주세요.")
+        colp1, colp2 = st.columns([5, 1])
+        with colp1:
+            pwd = st.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비밀번호를 입력하세요")
+        with colp2:
+            if st.button("접속", use_container_width=True):
+                if pwd == ACCESS_PASSWORD:
+                    ss.auth_ok = True
+                    st.rerun()
+                else:
+                    st.error("암호가 일치하지 않습니다.")
+                    st.info("도움말: 사내 공지 메일 또는 관리자에게 문의해주세요.")
     st.stop()
 
 # =============== 유틸 ===============
@@ -91,12 +126,10 @@ def copy_button(text: str, key: str):
 
 def to_epoch_ms(d: datetime.date | None) -> str | None:
     if not d: return None
-    # 날짜 00:00 KST 기준 epoch ms
     dt = datetime.datetime(d.year, d.month, d.day, 0, 0, 0)
     return str(int(time.mktime(dt.timetuple()) * 1000))
 
 def human_label(internal: str) -> str:
-    # 보기 좋은 라벨로 변환
     mapping = {
         "auto_generate_campaign": "자동 캠페인 생성 (숨김)",
         "title": "MBM 오브젝트 타이틀",
@@ -297,22 +330,30 @@ def resolve_mbm_schema() -> dict | None:
     """
     MBM 오브젝트의 fullyQualifiedName, objectTypeId, properties를 찾아 반환
     """
-    try:
-        data = get_custom_object_schemas()
-        for s in data.get("results", []):
-            # 후보 조건: 라벨 또는 name에 'mbm' 포함
-            name = (s.get("name") or "").lower()
-            label = (s.get("labels", {}).get("singular") or "").lower()
-            if "mbm" in name or "mbm" in label:
-                return s
-        # fallback: 'title' 속성 포함하는 커스텀 오브젝트
-        for s in data.get("results", []):
-            props = s.get("properties", [])
-            if any(p.get("name") == "title" for p in props):
-                return s
-    except Exception:
-        return None
+    data = get_custom_object_schemas()
+    # 1차: 이름/라벨에 mbm 포함
+    for s in data.get("results", []):
+        name = (s.get("name") or "").lower()
+        label = (s.get("labels", {}).get("singular") or "").lower()
+        if "mbm" in name or "mbm" in label:
+            return s
+    # 2차: title 속성 보유
+    for s in data.get("results", []):
+        props = s.get("properties", [])
+        if any(p.get("name") == "title" for p in props):
+            return s
     return None
+
+def get_mbm_properties_map() -> dict[str, dict]:
+    """
+    {propertyName: propertyMeta} 형태로 반환
+    propertyMeta 예: {"name": "...", "label": "...", "type": "string|number|enumeration|date|datetime|bool", "options":[...]}
+    """
+    sch = resolve_mbm_schema()
+    if not sch:
+        raise RuntimeError("MBM 오브젝트 스키마를 찾지 못했습니다.")
+    props = sch.get("properties", [])
+    return {p.get("name"): p for p in props}
 
 def hs_create_mbm_object(properties: dict) -> dict:
     """
@@ -395,11 +436,11 @@ def make_tabs():
 
 tabs, idx = make_tabs()
 
-# =============== 탭①: MBM 오브젝트 제출 (직접 입력 UI) ===============
+# =============== 탭①: MBM 오브젝트 제출 (스키마 기반 위젯) ===============
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
 
-    # 1-1) 타이틀 먼저 입력 → 다음 버튼 누르면 상세 폼이 펼쳐짐
+    # 1-1) 타이틀 먼저 입력 → [다음] 누르면 상세 폼이 펼쳐짐
     st.markdown("**MBM 오브젝트 타이틀 설정**")
     st.markdown("네이밍 규칙: `[국가코드] YYYYMMDD 웨비나명` 형식으로 입력하세요.")
     c1, c2 = st.columns([6, 1])
@@ -414,93 +455,108 @@ with tabs[idx[TAB1]]:
     with c2:
         copy_button(ss.mbm_title, key=f"title_{uuid.uuid4()}")
 
-    if not ss.show_prop_form:
-        col_a, col_b = st.columns([1, 1])
-        with col_a:
-            if st.button("다음 ▶ 필드 입력 열기", use_container_width=True, type="primary"):
-                if not ss.mbm_title:
-                    st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
-                else:
-                    ss.show_prop_form = True
-                    st.rerun()
-        with col_b:
-            st.empty()
+    ca, cb, cc = st.columns([2,2,1])
+    with ca:
+        if st.button("다음 ▶ 필드 입력 열기", use_container_width=True, type="primary", disabled=not ss.mbm_title):
+            if not ss.mbm_title:
+                st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
+            else:
+                ss.show_prop_form = True
+                st.rerun()
+    with cb:
+        # 이미 생성한 경우 스킵
+        if st.button("이미 생성했어요 ▶ 스킵", use_container_width=True):
+            if not ss.mbm_title:
+                st.error("타이틀을 입력해야 다음 단계로 이동할 수 있어요.")
+            else:
+                ss.mbm_submitted = True
+                ss.active_stage = 2
+                st.success("MBM 오브젝트 생성 단계를 건너뜁니다. ‘후속 작업 선택’ 탭으로 이동합니다.")
+                st.rerun()
+    with cc:
+        st.empty()
 
-    # 1-2) 상세 속성 폼 (타이틀 제출 후 표시)
+    # 1-2) 상세 속성 폼 (타이틀 제출 후 표시) — 스키마 기반 위젯
     if ss.show_prop_form and not ss.mbm_submitted:
         st.markdown("---")
         st.markdown("#### MBM 오브젝트 세부 항목")
+
+        # 스키마 메타 불러오기
+        try:
+            props_map = get_mbm_properties_map()
+        except Exception as e:
+            st.error(f"스키마 로드 실패: {e}")
+            props_map = {}
+
+        def render_field(name: str, meta: dict):
+            lbl = human_label(name)
+            ptype = (meta.get("type") or "").lower()
+            options = meta.get("options") or []
+            key = f"fld_{name}"
+
+            # 열거형 → selectbox
+            if ptype in ("enumeration", "enumerationoptions", "enum") or options:
+                # {label, value} → label을 보여주고 value를 저장
+                labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
+                values = [opt.get("value") for opt in options]
+                if not labels:
+                    # 옵션이 정의되어 있지 않아도 안전하게 text_input fallback
+                    return st.text_input(lbl, key=key)
+                idx = st.selectbox(lbl, options=list(range(len(labels))), format_func=lambda i: labels[i], key=key)
+                return values[idx]
+
+            # 날짜/일시
+            if ptype in ("date", "datetime"):
+                d = st.date_input(lbl, value=None, format="YYYY-MM-DD", key=key)
+                return to_epoch_ms(d) if d else None
+
+            # 불리언
+            if ptype in ("bool", "boolean"):
+                v = st.checkbox(lbl, value=False, key=key)
+                return "true" if v else "false"
+
+            # 숫자
+            if ptype in ("number", "integer", "long", "double"):
+                return str(int(st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", key=key)))
+
+            # 긴 텍스트 후보 → text_area
+            if name in LONG_TEXT_FIELDS:
+                return st.text_area(lbl, height=100, key=key)
+
+            # 기본: 텍스트
+            return st.text_input(lbl, key=key)
+
         with st.form("mbm_props_form", clear_on_submit=False):
-            # 숨김 + 체크: auto_generate_campaign
-            auto_generate_campaign = True
+            # hidden true
+            hidden_true = "true"
 
-            # 나머지 필드 입력
-            title = st.text_input(human_label("title"), value=ss.mbm_title)
-            country = st.text_input(human_label("country"))
-            mbm_type = st.text_input(human_label("mbm_type"))
-            city = st.text_input(human_label("city"))
-            location = st.text_input(human_label("location"))
-
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                mbm_start_date = st.date_input(human_label("mbm_start_date"), value=None, format="YYYY-MM-DD")
-            with col_d2:
-                mbm_finish_date = st.date_input(human_label("mbm_finish_date"), value=None, format="YYYY-MM-DD")
-
-            target_audience = st.text_input(human_label("target_audience"))
-            desc_targets = st.text_area(human_label("description_of_detailed_targets___________"), height=90)
-            purpose = st.text_area(human_label("purpose_of_mbm"), height=80)
-
-            col_n1, col_n2 = st.columns(2)
-            with col_n1:
-                expected_earnings = st.number_input(human_label("expected_earnings"), min_value=0.0, step=1.0, format="%.0f")
-            with col_n2:
-                product_midas = st.text_input(human_label("product__midas_"))
-
-            campaign_key_item = st.text_input(human_label("campaign_key_item"))
-            market_conditions = st.text_area(human_label("market_conditions"), height=80)
-            pain_point = st.text_area(human_label("pain_point_of_target"), height=80)
-            benefits = st.text_area(human_label("benefits"), height=80)
+            # 필드 렌더 (스키마 매핑, 없으면 합리적 기본 위젯)
+            values = {}
+            for n in MBM_FIELDS:
+                meta = props_map.get(n, {})
+                if n == "title":
+                    # 타이틀은 타이틀 입력값을 기본으로
+                    values[n] = st.text_input(human_label(n), value=ss.mbm_title, key=f"fld_title_override")
+                else:
+                    values[n] = render_field(n, meta)
 
             submitted_obj = st.form_submit_button("MBM 오브젝트 생성하기", type="primary")
 
         if submitted_obj:
-            if not title:
+            if not values.get("title"):
                 st.error("타이틀은 필수입니다.")
                 st.stop()
 
-            props_payload = {
-                "auto_generate_campaign": "true" if auto_generate_campaign else "false",
-                "title": title,
-                "country": country,
-                "mbm_type": mbm_type,
-                "city": city,
-                "location": location,
-                "target_audience": target_audience,
-                "description_of_detailed_targets___________": desc_targets,
-                "purpose_of_mbm": purpose,
-                "expected_earnings": str(int(expected_earnings)) if expected_earnings is not None else None,
-                "product__midas_": product_midas,
-                "campaign_key_item": campaign_key_item,
-                "market_conditions": market_conditions,
-                "pain_point_of_target": pain_point,
-                "benefits": benefits,
-            }
-
-            # 날짜 변환 (epoch ms)
-            if mbm_start_date:
-                props_payload["mbm_start_date"] = to_epoch_ms(mbm_start_date)
-            if mbm_finish_date:
-                props_payload["mbm_finish_date"] = to_epoch_ms(mbm_finish_date)
-
-            # None 제거
-            props_payload = {k: v for k, v in props_payload.items() if v not in (None, "")}
+            # payload 조립
+            payload = {k: v for k, v in values.items() if v not in (None, "")}
+            # 날짜 키는 문자열(epoch ms) 그대로 보냄
+            payload[MBM_HIDDEN_TRUE] = hidden_true  # auto_generate_campaign=true
 
             try:
                 with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
-                    created = hs_create_mbm_object(props_payload)
+                    created = hs_create_mbm_object(payload)
                     ss.mbm_object = created
-                    ss.mbm_title = title
+                    ss.mbm_title = values["title"]
                     ss.mbm_submitted = True
                     ss.active_stage = 2
                     st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
