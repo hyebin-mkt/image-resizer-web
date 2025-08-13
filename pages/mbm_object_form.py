@@ -96,7 +96,7 @@ LABEL_OVERRIDES = {
 # 멀티 체크 필드
 MULTI_CHECK_FIELDS = {"target_audience", "product__midas_"}
 
-# 스키마 옵션이 비어있을 때 사용할 기본 옵션(표기=값)
+# 스키마 옵션이 비어있을 때 사용할 기본 옵션
 DEFAULT_ENUM_OPTIONS = {
     "target_audience": [
         "New customer 신규 판매",
@@ -142,7 +142,7 @@ st.sidebar.link_button("MBM 가이드북", "https://example.com", use_container_
 st.sidebar.divider()
 st.sidebar.caption("© Chacha")
 
-# =============== 본문 접근 암호(입력란 바로 아래 에러) ===============
+# =============== 본문 접근 암호 ===============
 if not ss.auth_ok:
     box = st.container(border=True)
     with box:
@@ -264,7 +264,7 @@ def build_content_slug(country_value: str | None, finish_ms: str | None, title_h
 def human_label(internal: str) -> str:
     return LABEL_OVERRIDES.get(internal, internal + (" *" if internal in REQUIRED_FIELDS else ""))
 
-# =============== HubSpot API(페이지/이메일/폼/스키마) ===============
+# =============== HubSpot API ===============
 def hs_clone_site_page(template_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
     last = None
@@ -405,6 +405,38 @@ def hs_create_mbm_object(properties: dict) -> dict:
     record_url = f"https://app.hubspot.com/contacts/{PORTAL_ID}/record/{type_id}/{obj_id}"
     return {"id": obj_id, "typeId": type_id, "url": record_url, "raw": obj}
 
+# ---- 템플릿 ID 자동 탐색(404 대비) ----
+def guess_site_template_id_by_title(title: str) -> str | None:
+    """site-pages 리스트를 페이지네이션하며 name/title로 템플릿 추정"""
+    url = f"{HS_BASE}/cms/v3/pages/site-pages"
+    after = None
+    for _ in range(20):  # 최대 2000개
+        params = {"limit": 100, "archived": "false"}
+        if after: params["after"] = after
+        r = requests.get(url, headers=HEADERS_JSON, params=params, timeout=30)
+        if r.status_code >= 400: break
+        data = r.json()
+        for it in data.get("results", []):
+            name = (it.get("name") or "").strip()
+            page_title = (it.get("pageTitle") or "").strip()
+            if name.lower() == title.lower() or page_title.lower() == title.lower():
+                return str(it.get("id"))
+        after = data.get("paging", {}).get("next", {}).get("after")
+        if not after: break
+    return None
+
+def clone_site_page_resilient(template_id: str, clone_name: str) -> dict:
+    """잘못된 ID(예: 포털 ID)로 404가 나면 템플릿 타이틀로 ID 탐색 후 재시도"""
+    try:
+        return hs_clone_site_page(template_id, clone_name)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            # 포털 ID를 잘못 넣은 케이스 등
+            cand = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
+            if cand:
+                return hs_clone_site_page(cand, clone_name)
+        raise
+
 # =============== 탭 구성 ===============
 TAB1 = "MBM 오브젝트 제출"
 TAB2 = "후속 작업 선택"
@@ -465,7 +497,7 @@ def make_tabs():
 
 tabs, idx = make_tabs()
 
-# =============== 탭①: MBM 오브젝트 제출 (페이지네이션 + 검증 + 폴백) ===============
+# =============== 탭①: MBM 오브젝트 제출 (페이지네비/검증/폴백) ===============
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
 
@@ -561,14 +593,12 @@ with tabs[idx[TAB1]]:
 
         # --- 위젯 렌더러들 ---
         def _get_options(meta: dict, name: str):
-            """스키마 옵션이 비었으면 기본 옵션으로 대체"""
             opts = meta.get("options") or []
             if not opts and name in DEFAULT_ENUM_OPTIONS:
                 return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
             return opts
 
         def render_multi_check(name: str, meta: dict):
-            """체크박스 2열 그리드 (값은 세미콜론 연결) – state 유지"""
             opts = _get_options(meta, name)
             labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
             values = [o.get("value") for o in opts]
@@ -587,10 +617,9 @@ with tabs[idx[TAB1]]:
             lbl = LABEL_OVERRIDES.get(name, human_label(name))
             ptype = (meta.get("type") or "").lower()
             options = _get_options(meta, name)
-            key = f"fld_{name}"
+            base = f"fld_{name}"  # 내부 상태 키
 
             if name in MULTI_CHECK_FIELDS:
-                # 보이는 라벨은 굵게 처리하지 않음(요청 6)
                 st.markdown(lbl)
                 return render_multi_check(name, meta)
 
@@ -598,45 +627,49 @@ with tabs[idx[TAB1]]:
                 labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
                 values = [opt.get("value") for opt in options]
                 if not labels:
-                    return st.text_input(lbl, key=key)
-                # state 보존(기존 선택값이 있으면 그 index로 복구)
-                cur_val = ss.get(key)
+                    # 위젯키와 상태키 분리(세션충돌 방지)
+                    wkey = f"{base}_ti"
+                    val = st.text_input(lbl, value=ss.get(base, ""), key=wkey)
+                    ss[base] = val
+                    return val
+                cur_val = ss.get(base)
                 default_index = values.index(cur_val) if cur_val in values else 0
                 idx_opt = st.selectbox(lbl, options=list(range(len(labels))),
                                        index=default_index,
-                                       format_func=lambda i: labels[i], key=f"{key}_idx")
-                ss[key] = values[idx_opt]
-                return ss[key]
+                                       format_func=lambda i: labels[i],
+                                       key=f"{base}_idx")
+                ss[base] = values[idx_opt]
+                return ss[base]
 
             if ptype in ("date", "datetime"):
-                # state 보존: epoch ms → date
-                prev_ms = ss.get(key)
+                prev_ms = ss.get(base)
                 default_date = None
                 if prev_ms:
                     try:
                         default_date = datetime.date.fromtimestamp(int(prev_ms)/1000)
                     except Exception:
                         default_date = None
-                d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{key}_date")
+                d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
                 val = to_epoch_ms(d) if d else None
-                ss[key] = val
+                ss[base] = val
                 return val
 
             if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
-                prev = float(ss.get(key, 0) or 0)
-                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{key}_num")
-                ss[key] = str(int(v))
-                return ss[key]
+                prev = float(ss.get(base, 0) or 0)
+                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
+                ss[base] = str(int(v))
+                return ss[base]
 
             if name in LONG_TEXT_FIELDS:
-                prev = ss.get(key, "")
-                val = st.text_area(lbl, height=100, value=prev, key=f"{key}_txt")
-                ss[key] = val
+                prev = ss.get(base, "")
+                val = st.text_area(lbl, height=100, value=prev, key=f"{base}_txt")
+                ss[base] = val
                 return val
 
-            prev = ss.get(key, "")
-            val = st.text_input(lbl, value=prev, key=key)
-            ss[key] = val
+            # 일반 텍스트: 위젯키/상태키 분리(에러 방지)
+            prev = ss.get(base, "")
+            val = st.text_input(lbl, value=prev, key=f"{base}_ti")
+            ss[base] = val
             return val
 
         # ---- 입력 영역(페이지별 레이아웃) ----
@@ -645,30 +678,26 @@ with tabs[idx[TAB1]]:
         with form_box:
             current_fields = PAGES[ss.prop_step-1]
 
-            # 페이지 3은 1열 배치(요청 3)
             if ss.prop_step == 3:
+                # 페이지 3은 1열
                 for fname in current_fields:
                     meta = props_map.get(fname, {})
                     render_field(fname, meta)
             else:
-                # 페이지 1·2 기본은 2열
                 cols = st.columns(2)
-                # 페이지 2의 "판매 타겟 제품"은 전체 너비 사용(요청 4)
                 full_span_field = "product__midas_" if ss.prop_step == 2 else None
-
                 for i, fname in enumerate(current_fields):
                     meta = props_map.get(fname, {})
                     if fname == full_span_field:
-                        # 먼저 target_audience가 안 보이는 문제 방지: 명시적으로 렌더 순서 유지
                         st.markdown(LABEL_OVERRIDES.get(fname, fname))
                         render_multi_check(fname, meta)
                     else:
                         with cols[i % 2]:
-                            if fname == "title":  # 타이틀은 위에서 입력했으니 건너뜀
+                            if fname == "title": 
                                 continue
                             render_field(fname, meta)
 
-        # ---- 페이지 네비게이션(아래 배치, 요청 1) ----
+        # ---- 페이지 네비게이션(아래 배치) ----
         nav = st.container()
         with nav:
             col_prev, col_ctr, col_next = st.columns([1,1,1])
@@ -684,7 +713,7 @@ with tabs[idx[TAB1]]:
                 if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
                     ss.prop_step += 1; st.rerun()
 
-        # ---- (버튼은 폼 바깥·가운데·80%폭 근사치, 요청 2) ----
+        # ---- (버튼: 중앙 80% 폭) ----
         gap_l, main, gap_r = st.columns([1, 8, 1])
         with main:
             if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
@@ -694,7 +723,8 @@ with tabs[idx[TAB1]]:
                 def get_val_for(name: str):
                     if name in MULTI_CHECK_FIELDS:
                         return ";".join(ss.get(f"mchk_{name}", [])) or None
-                    return ss.get(f"fld_{name}") or ss.get(f"fld_{name}_num") or ss.get(f"fld_{name}_txt") or ss.get(f"fld_{name}_date")
+                    # 다양한 위젯키 중 세션에 저장해둔 내부 키 우선
+                    return ss.get(f"fld_{name}")
 
                 for n in MBM_FIELDS:
                     if n == "title": 
@@ -739,9 +769,10 @@ if ss.mbm_submitted:
                 st.text_input("MBM Title", value=ss.mbm_title, disabled=True, label_visibility="collapsed")
             with c2:
                 st.markdown("**생성할 자산**")
-                make_wp = st.checkbox("웹페이지 복제", value=True)
-                make_em = st.checkbox("이메일 복제", value=True)
-                email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
+                create_wp = st.checkbox("웹페이지 생성", value=True)
+                create_em = st.checkbox("이메일 생성", value=True)
+                create_form = st.checkbox("신청 폼 생성", value=True)
+                email_count = st.number_input("이메일 생성 개수", min_value=1, max_value=10, value=1, step=1)
 
             submitted_actions = st.form_submit_button("생성하기", type="primary")
 
@@ -749,10 +780,15 @@ if ss.mbm_submitted:
             links = {"Website Page": [], "Email": [], "Form": []}
             try:
                 # Website Page → 편집 링크 + Content slug
-                if make_wp:
+                if create_wp:
                     page_name = f"{ss.mbm_title}_landing page"
-                    with st.spinner(f"웹페이지 복제 중… ({page_name})"):
-                        page_data = hs_clone_site_page(LANDING_PAGE_TEMPLATE_ID, page_name)
+                    with st.spinner(f"웹페이지 생성 중… ({page_name})"):
+                        # 잘못된 ID(포털 ID 등)일 경우 타이틀로 탐색 후 재시도
+                        tpl_id = LANDING_PAGE_TEMPLATE_ID
+                        if tpl_id == PORTAL_ID:
+                            cand = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
+                            if cand: tpl_id = cand
+                        page_data = clone_site_page_resilient(tpl_id, page_name)
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         _ = hs_update_site_page(page_id, {"name": page_name})
                         slug = build_content_slug(ss.get("slug_country"), ss.get("slug_finish_ms"), ss.mbm_title)
@@ -762,29 +798,31 @@ if ss.mbm_submitted:
                         else:
                             st.warning("슬러그를 계산하지 못했습니다. (국가/종료일 확인 필요)")
                         hs_push_live_site(page_id)
-                        edit_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
+                        # 원하는 편집 URL 형식
+                        edit_url = f"https://app.hubspot.com/pages/{PORTAL_ID}/editor/{page_id}/content"
                         links["Website Page"].append(("편집", edit_url))
 
                 # Emails
-                if make_em:
+                if create_em:
                     for i in range(1, int(email_count) + 1):
                         email_name = f"{ss.mbm_title}_email_{ordinal(i)}"
-                        with st.spinner(f"마케팅 이메일 복제 중… ({email_name})"):
+                        with st.spinner(f"마케팅 이메일 생성 중… ({email_name})"):
                             em = hs_clone_marketing_email(EMAIL_TEMPLATE_ID, email_name)
                             em_id = str(em.get("id") or em.get("contentId") or "")
                             hs_update_email_name(em_id, email_name)
                             edit_url = f"https://app.hubspot.com/email/{PORTAL_ID}/edit/{em_id}/settings"
                             links["Email"].append((f"Email {ordinal(i)}", edit_url))
 
-                # Register Form
-                form_name = f"{ss.mbm_title}_register form"
-                with st.spinner(f"Register Form 복제 중… ({form_name})"):
-                    new_form = clone_form_with_hidden_value(
-                        REGISTER_FORM_TEMPLATE_GUID, form_name, ss.mbm_title, MBM_HIDDEN_FIELD_NAME
-                    )
-                    new_guid = new_form.get("guid") or new_form.get("id")
-                    edit_url = f"https://app.hubspot.com/forms/{PORTAL_ID}/{new_guid}/edit"
-                    links["Form"].append(("편집", edit_url))
+                # Register Form (옵션)
+                if create_form:
+                    form_name = f"{ss.mbm_title}_register form"
+                    with st.spinner(f"신청 폼 생성 중… ({form_name})"):
+                        new_form = clone_form_with_hidden_value(
+                            REGISTER_FORM_TEMPLATE_GUID, form_name, ss.mbm_title, MBM_HIDDEN_FIELD_NAME
+                        )
+                        new_guid = new_form.get("guid") or new_form.get("id")
+                        edit_url = f"https://app.hubspot.com/forms/{PORTAL_ID}/{new_guid}/edit"
+                        links["Form"].append(("편집", edit_url))
 
                 ss.results = {"title": ss.mbm_title, "links": links}
                 ss.active_stage = 3
