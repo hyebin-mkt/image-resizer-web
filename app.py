@@ -17,6 +17,9 @@ PRESETS = [
 ]
 SCALE_OPTIONS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
 
+# ✅ 가장 먼저 호출해야 합니다!
+st.set_page_config(page_title="원샷원킬 배너 생성기", page_icon="⭐", layout="centered")
+
 # ---- helpers ----
 def sanitize_label(s: str) -> str:
     bad='\\/:*?"<>|'
@@ -64,7 +67,6 @@ def render_footer_links():
     st.caption("© Chacha · chb0218@midasit.com")
 
 # ---- UI ----
-st.set_page_config(page_title=APP_TITLE, page_icon="⭐", layout="centered")
 st.title(APP_TITLE)
 st.caption("이미지 하나로 마이다스 이벤트에 필요한 사이즈를 한방에 추출하세요")
 
@@ -146,9 +148,3 @@ else:
 # 하단 바로가기/푸터
 st.markdown('<div style="height:60px"></div>', unsafe_allow_html=True)
 render_footer_links()
-
-# 여백
-st.markdown('<div style="height:40px"></div>', unsafe_allow_html=True)
-
-# Feedback 안내 (새 페이지)
-st.markdown("피드백이 있으신가요? → **[Feedback 페이지로 이동](Feedback)**")
