@@ -19,13 +19,16 @@ HUBSPOT_REGION = "na1"
 
 # Website Page 템플릿 ID (Secrets 키 이름은 기존 그대로 사용)
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
-# (옵션) 템플릿 '제목'로 백업 검색할 때 사용
-WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "")
+# (백업) 템플릿 '제목'으로 자동 검색할 때 사용 — UI로는 노출하지 않음
+WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "[Landing Page Template] YYMMDD_MBM Title")
 
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"  # 고정
 MBM_HIDDEN_FIELD_NAME = "title"
 FORM_ID_FOR_EMBED = st.secrets.get("FORM_ID_FOR_EMBED", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
+
+# 사이드바 접근 제어(요청 3)
+ACCESS_PASSWORD = "mid@sit0901"
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -36,10 +39,26 @@ HEADERS_JSON = {
 
 # =============== 세션 상태 ===============
 ss = st.session_state
+ss.setdefault("auth_ok", False)         # 접근 허용 여부
 ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
 ss.setdefault("mbm_submitted", False)
 ss.setdefault("mbm_title", "")
 ss.setdefault("results", None)          # {"title": str, "links": dict}
+
+# =============== 사이드바 암호 확인 ===============
+with st.sidebar:
+    st.header("🔒 Access")
+    if not ss.auth_ok:
+        pwd = st.text_input("암호 입력", type="password", placeholder="비밀번호를 입력하세요")
+        if st.button("접속"):
+            if pwd == ACCESS_PASSWORD:
+                ss.auth_ok = True
+                st.experimental_rerun()
+            else:
+                st.error("암호가 일치하지 않습니다.")
+
+if not ss.auth_ok:
+    st.stop()
 
 # =============== 유틸 ===============
 def ordinal(n: int) -> str:
@@ -68,7 +87,7 @@ def copy_button(text: str, key: str):
     )
 
 # =============== HubSpot API ===============
-# --- Website Page 전용 클론/이름변경/퍼블리시 ---
+# --- Website Page 전용 ---
 def hs_clone_site_page(template_id: str, clone_name: str) -> dict:
     """POST /cms/v3/pages/site-pages/clone"""
     url = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
@@ -93,9 +112,22 @@ def hs_push_live_site(page_id: str) -> None:
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
-# ---- site-pages 목록 검색(템플릿 제목으로 ID 찾기) ----
+def hs_get_site_page(page_id: str) -> dict:
+    url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
+    r = requests.get(url, headers=HEADERS_JSON, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+def extract_best_live_url(page_json: dict) -> str | None:
+    # 가능한 key들을 순서대로 확인
+    for k in ("publicUrl", "url", "absoluteUrl", "absolute_url", "publishedUrl"):
+        val = page_json.get(k)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+# ---- site-pages 목록 검색(템플릿 제목으로 ID 찾기; UI 표시 없이 자동 백업) ----
 def find_site_page_id_by_title_exact(title: str) -> str | None:
-    """Website pages 리스트에서 name(내부명)이 title과 정확히 일치하는 첫 페이지 ID 반환"""
     after = None
     while True:
         params = {"limit": 100}
@@ -115,19 +147,13 @@ def find_site_page_id_by_title_exact(title: str) -> str | None:
     return None
 
 def clone_site_page_with_fallback(primary_id: str, clone_name: str, title_backup: str | None) -> dict:
-    """ID로 먼저 시도 → 404면 제목으로 찾아 다시 시도"""
     try:
         return hs_clone_site_page(primary_id, clone_name)
     except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            if title_backup and title_backup.strip():
-                resolved = find_site_page_id_by_title_exact(title_backup)
-                if resolved:
-                    return hs_clone_site_page(resolved, clone_name)
-                else:
-                    raise requests.HTTPError(
-                        f"[백업 실패] 템플릿 제목 '{title_backup}' 으로 Website Page를 찾지 못했습니다."
-                    )
+        if e.response is not None and e.response.status_code == 404 and title_backup:
+            resolved = find_site_page_id_by_title_exact(title_backup)
+            if resolved:
+                return hs_clone_site_page(resolved, clone_name)
         raise
 
 # ---- Emails ----
@@ -314,19 +340,9 @@ if ss.mbm_submitted:
                 st.text_input("MBM Title", value=ss.mbm_title, disabled=True, label_visibility="collapsed")
             with c2:
                 st.markdown("**생성할 자산**")
-                make_lp = st.checkbox("웹페이지 복제", value=True)  # Website 전용
+                make_wp = st.checkbox("웹페이지 복제", value=True)  # Website 전용
                 make_em = st.checkbox("이메일 복제", value=True)
                 email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
-
-            # (옵션) ID 실패 시를 대비한 템플릿 제목 입력란
-            tpl_title_input = ""
-            if make_lp:
-                tpl_title_input = st.text_input(
-                    "웹페이지 템플릿 제목(백업 용도, 정확히 일치)",
-                    value=WEBSITE_PAGE_TEMPLATE_TITLE,
-                    placeholder="[Landing Page Template] YYMMDD_MBM Title",
-                    help="ID로 복제 시 404가 나면 이 제목과 일치하는 Website Page를 찾아 다시 시도합니다.",
-                )
 
             submitted_actions = st.form_submit_button("생성하기", type="primary")
 
@@ -339,23 +355,30 @@ if ss.mbm_submitted:
 
             try:
                 # Website Page 클론 & 내부명 업데이트 & 퍼블리시
-                if make_lp:
+                if make_wp:
                     page_name = f"{ss.mbm_title}_landing page"  # 네이밍 규칙 유지
                     with st.spinner(f"웹페이지 복제 중… ({page_name})"):
-                        # 1차: ID로, 404면 2차: 제목으로 검색해 ID 해결
                         page_data = clone_site_page_with_fallback(
                             LANDING_PAGE_TEMPLATE_ID,
                             page_name,
-                            tpl_title_input or WEBSITE_PAGE_TEMPLATE_TITLE
+                            WEBSITE_PAGE_TEMPLATE_TITLE  # UI 없이 자동 백업 검색
                         )
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         hs_update_site_page_name(page_id, page_name)
                         hs_push_live_site(page_id)
-                        edit_url   = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/edit"
-                        public_url = page_data.get("url") or page_data.get("publicUrl") or ""
-                        links["Website Page"].append(("편집", edit_url))
-                        if public_url:
-                            links["Website Page"].append(("공개", public_url))
+
+                        # 퍼블리시 후, 페이지 정보를 다시 조회하여 접속 가능한 URL을 확보
+                        try:
+                            refreshed = hs_get_site_page(page_id)
+                        except Exception:
+                            refreshed = page_data
+                        live_url = extract_best_live_url(refreshed)
+                        if not live_url:
+                            # 퍼블릭 URL이 아직 없으면 내부 보기 링크를 제공(접속 가능한 단일 링크)
+                            live_url = f"https://app.hubspot.com/cms/{PORTAL_ID}/website/pages/{page_id}/view"
+
+                        # 요청 2: Website Page는 "접속 가능한 링크 하나만" 제공
+                        links["Website Page"].append(("보기", live_url))
 
                 # 이메일 N개 클론 & 내부명 업데이트
                 if make_em:
