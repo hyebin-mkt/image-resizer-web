@@ -4,7 +4,7 @@ import requests
 import streamlit as st
 
 # =============== 페이지 헤더 ===============
-st.set_page_config(page_title="🧚🏻‍♂️ MBM Magic Wizard", page_icon="📄", layout="centered")
+st.set_page_config(page_title="MBM Magic Wizard", page_icon="📄", layout="centered")
 st.title("🧚🏻‍♂️ MBM Magic Wizard")
 st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
 
