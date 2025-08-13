@@ -92,13 +92,21 @@ def list_issue_comments(repo_full: str, token: str, number: int):
 
 def sidebar_quick_link(label: str, url: str):
     st.sidebar.markdown(
-        f'''<a href="{url}" target="_blank" style="text-decoration:none;">
-  <div style="padding:12px 14px; margin:6px 0; border:1px solid #e5e7eb; border-radius:10px;">
-    <span style="font-weight:600;">{label}</span>
+        f'''
+<a href="{url}" target="_blank" style="text-decoration:none;">
+  <div style="
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px; margin:6px 0;
+      border:1px solid #e5e7eb; border-radius:12px;
+      transition:all .15s ease; background:#fff;">
+    <span style="font-weight:600; color:#111827;">{label}</span>
+    <span style="font-size:14px; color:#6b7280;">↗</span>
   </div>
-</a>''',
+</a>
+''',
         unsafe_allow_html=True
     )
+
 
 def feedback_ui():
     st.markdown("---")
@@ -227,7 +235,15 @@ with st.sidebar:
     sidebar_quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
     sidebar_quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
     sidebar_quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view?utm_content=DAGtMIVovm8&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9b120a74ea")
-    st.write("© Chacha")
+
+    # 하단 여백을 조금 주고 저작권/이메일을 아래쪽으로
+    st.sidebar.markdown('<div style="height:10vh"></div>', unsafe_allow_html=True)
+    st.sidebar.markdown(
+        '<div style="color:#6b7280; font-size:12px;">'
+        '© Chacha · <a href="mailto:chb0218@midasit.com" style="color:#6b7280; text-decoration:none;">chb0218@midasit.com</a>'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 uploaded = st.file_uploader("이미지 업로드 (PNG/JPG 등, 1개)", type=[e.strip(".") for e in VALID_EXTS], accept_multiple_files=False)
 if uploaded:
