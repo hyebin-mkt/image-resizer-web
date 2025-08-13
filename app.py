@@ -72,7 +72,7 @@ st.caption("이미지 하나로 마이다스 이벤트에 필요한 사이즈를
 
 # 본문에서 설정
 st.header("설정")
-colA, colB, colC = st.columns(3)
+colA, colC, colB = st.columns(3)
 with colA:
     fmt = st.selectbox("출력 포맷", ["jpg","jpeg","png"], index=0)
 with colB:
