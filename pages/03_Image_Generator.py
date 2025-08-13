@@ -1,10 +1,7 @@
 # pages/03_Image_Generator.py
-# ⚡ 이미지 생성기(폴더 저장) → 허브스팟 Files 업로드 → 에셋 연결
-# - 저장: ZIP 대신 폴더에 개별 파일 저장
-# - 업로드: HubSpot Files API (v3 / legacy 폴백)
-# - 에셋 연결: Website Page Featured Image / Top Section Image, Marketing Email Header
+# ⚡ 이미지 생성기(메모리 ZIP) → 허브스팟 Files 업로드 → 에셋 연결
 
-import io, os, math, datetime, time, mimetypes, json
+import io, os, time, datetime, mimetypes, zipfile
 from pathlib import Path
 import requests
 from PIL import Image, ImageOps
@@ -63,18 +60,11 @@ PRESETS = [
 ]
 SCALE_OPTIONS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
 
-# (안전 버전)
-import os  # 파일 상단 import 목록에 이미 있으면 생략
-
-TOKEN    = (st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN") or os.getenv("HUBSPOT_PRIVATE_APP_TOKEN") or "").strip()
+# 시크릿(환경변수 폴백 포함)
+TOKEN     = (st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN") or os.getenv("HUBSPOT_PRIVATE_APP_TOKEN") or "").strip()
 PORTAL_ID = (str(st.secrets.get("PORTAL_ID") or os.getenv("PORTAL_ID") or "")).strip()
-
-if not TOKEN or not PORTAL_ID:
-    st.error("Secrets에 HUBSPOT_PRIVATE_APP_TOKEN, PORTAL_ID를 설정해 주세요.")
-    st.stop()
-    
-MBM_FQN = st.secrets.get("MBM_FQN", "")  # e.g. p123456_mbm
-MBM_OBJECT_TYPE_ID = st.secrets.get("MBM_OBJECT_TYPE_ID", "")  # e.g. 2-10432789
+MBM_FQN   = st.secrets.get("MBM_FQN", "")
+MBM_OBJECT_TYPE_ID = st.secrets.get("MBM_OBJECT_TYPE_ID", "")
 
 if not TOKEN or not PORTAL_ID:
     st.error("Secrets에 HUBSPOT_PRIVATE_APP_TOKEN, PORTAL_ID를 설정해 주세요.")
@@ -84,15 +74,15 @@ HS = "https://api.hubapi.com"
 H  = {"Authorization": f"Bearer {TOKEN}"}
 
 # (선택) 에셋 연결용 내부 키들
-EMAIL_HEADER_WIDGET_KEY   = st.secrets.get("EMAIL_HEADER_WIDGET_KEY", "")
+EMAIL_HEADER_WIDGET_KEY     = st.secrets.get("EMAIL_HEADER_WIDGET_KEY", "")
 PAGE_TOP_SECTION_MODULE_KEY = st.secrets.get("PAGE_TOP_SECTION_MODULE_KEY", "")
-PAGE_FEATURED_IMAGE_FIELD = st.secrets.get("PAGE_FEATURED_IMAGE_FIELD", "")
+PAGE_FEATURED_IMAGE_FIELD   = st.secrets.get("PAGE_FEATURED_IMAGE_FIELD", "featuredImageId")
 
 # ───────────────────────────── 유틸 ─────────────────────────────
 ss = st.session_state
-ss.setdefault("generated_dir", "")
-ss.setdefault("generated_files", [])   # [(abs_path, file_name, label, w, h)]
-ss.setdefault("uploaded_files", [])    # [(file_name, hubspot_url, file_id)]
+ss.setdefault("generated_zip", b"")
+ss.setdefault("generated_files", [])   # [(filename, bytes, label, w, h)]
+ss.setdefault("uploaded_files", [])    # [(filename, hubspot_url, file_id)]
 ss.setdefault("mbm_title", "")
 ss.setdefault("show_hs_tab", False)
 ss.setdefault("show_link_tab", False)
@@ -121,11 +111,12 @@ def ensure_rgb(img: Image.Image, bg=(255,255,255)) -> Image.Image:
     return img.convert("RGB") if img.mode!="RGB" else img
 
 def content_type_from_name(name: str) -> str:
+    import mimetypes
     return mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 # ───────────────────────────── HubSpot Files API ─────────────────────────────
 def hs_create_folder(name: str, parent_id: int | None = None) -> dict:
-    """v3 → 실패 시 레거시 filemanager로 폴백"""
+    # v3 → 실패 시 legacy 폴백
     try:
         payload = {"name": name}
         if parent_id is not None:
@@ -137,7 +128,6 @@ def hs_create_folder(name: str, parent_id: int | None = None) -> dict:
             return r.json()
     except Exception:
         pass
-    # legacy
     r = requests.post(f"{HS}/filemanager/api/v3/folders",
                       headers=H|{"Content-Type":"application/json"},
                       json={"name": name, "parentFolderId": parent_id or 0}, timeout=30)
@@ -150,20 +140,19 @@ def hs_list_folders(name_like: str):
     items = r.json().get("objects") or r.json().get("results") or []
     return [it for it in items if name_like.lower() in (it.get("name","").lower())]
 
-def hs_upload_file(abs_path: str, folder_id: int | str | None, is_public=True) -> dict:
-    with open(abs_path, "rb") as f:
-        data = {
-            "folderId": str(folder_id) if folder_id is not None else "",
-            "options": json.dumps({
-                "access": "PUBLIC" if is_public else "PRIVATE",
-                "duplicateValidationStrategy": "NONE",
-                "duplicateValidationScope": "EXACT_FOLDER",
-            })
-        }
-        files = {"file": (Path(abs_path).name, f, content_type_from_name(abs_path))}
-        r = requests.post(f"{HS}/files/v3/files", headers=H, data=data, files=files, timeout=90)
-        r.raise_for_status()
-        return r.json()
+def hs_upload_bytes(filename: str, data_bytes: bytes, folder_id: int | str | None, is_public=True) -> dict:
+    files = {"file": (filename, io.BytesIO(data_bytes), content_type_from_name(filename))}
+    data = {
+        "folderId": str(folder_id) if folder_id is not None else "",
+        "options": json.dumps({
+            "access": "PUBLIC" if is_public else "PRIVATE",
+            "duplicateValidationStrategy": "NONE",
+            "duplicateValidationScope": "EXACT_FOLDER",
+        })
+    }
+    r = requests.post(f"{HS}/files/v3/files", headers=H, data=data, files=files, timeout=90)
+    r.raise_for_status()
+    return r.json()
 
 # ───────────────────────────── MBM 검색(커스텀 오브젝트) ─────────────────────────────
 def _resolve_mbm_ident():
@@ -189,12 +178,11 @@ def hs_search_mbm_titles(q: str, limit=20):
         "sorts": [{"propertyName": "hs_lastmodifieddate", "direction": "DESCENDING"}],
     }
     r = requests.post(url, headers=H|{"Content-Type":"application/json"}, json=payload, timeout=30)
-    if r.status_code >= 400: 
-        # 폴백: 전체 조회 후 로컬 필터
+    if r.status_code >= 400:
         url2 = f"{HS}/crm/v3/objects/{ident}?limit={limit}&properties=title"
         r2 = requests.get(url2, headers=H, timeout=30)
         if r2.status_code >= 400: return []
-        return [(it["id"], it.get("properties",{}).get("title","")) 
+        return [(it["id"], it.get("properties",{}).get("title",""))
                 for it in r2.json().get("results",[]) if q.lower() in it.get("properties",{}).get("title","").lower()]
     return [(it["id"], it.get("properties",{}).get("title","")) for it in r.json().get("results",[])]
 
@@ -222,8 +210,7 @@ def list_marketing_emails(q: str, limit=100):
     return out
 
 def set_page_featured_image(page_id: str, file_id: str):
-    key = PAGE_FEATURED_IMAGE_FIELD or "featuredImageId"
-    for k in (key, "featuredImage", "featuredImageId"):
+    for k in (PAGE_FEATURED_IMAGE_FIELD, "featuredImage", "featuredImageId"):
         r = requests.patch(f"{HS}/cms/v3/pages/site-pages/{page_id}",
                            headers=H|{"Content-Type":"application/json"},
                            json={k: file_id}, timeout=30)
@@ -257,12 +244,12 @@ if ss.show_hs_tab:   tabs.append("허브스팟 연동")
 if ss.show_link_tab: tabs.append("에셋 연결")
 tab_objs = st.tabs(tabs)
 
-# ───────────────────────────── 탭①: 이미지 생성 ─────────────────────────────
+# ───────────────────────────── 탭①: 이미지 생성 (메모리 ZIP) ─────────────────────────────
 with tab_objs[0]:
     st.title(APP_TITLE)
     st.caption("이미지 하나로 마이다스 이벤트에 필요한 사이즈를 한방에 추출하세요")
 
-    st.header("설정")
+    # “설정” 제목은 제거 (요청사항)
     colA, colC, colB = st.columns(3)
     with colA:
         fmt = st.selectbox("출력 포맷", ["jpg","jpeg","png"], index=0)
@@ -308,34 +295,40 @@ with tab_objs[0]:
                     st.warning(f"무시된 입력: `{line}`")
         targets = chosen+custom
 
-        if st.button("이미지 생성", type="primary"):
+        if st.button("이미지 생성 & ZIP 준비", type="primary"):
             if not targets:
                 st.error("내보낼 사이즈를 하나 이상 선택/입력하세요."); st.stop()
 
-            # 폴더 저장 (ZIP 대신 개별 파일 보관)
-            out_dir = Path("/mnt/data") / f"{sanitize_label(base_title)}_{int(time.time())}"
-            out_dir.mkdir(parents=True, exist_ok=True)
+            zip_buf = io.BytesIO()
+            saved = []  # (filename, bytes, label, w, h)
 
-            saved=[]
-            for label,tw,th in targets:
-                stw = max(1, int(round(tw*float(scale))))
-                sth = max(1, int(round(th*float(scale))))
-                out = resize_cover(img, stw, sth)
-                label_safe = sanitize_label(label)
-                out_name = f"{sanitize_label(base_title)}_{label_safe}_{stw}x{sth}.{fmt}"
-                abs_path = out_dir / out_name
-                if fmt in ("jpg","jpeg"):
-                    ensure_rgb(out).save(abs_path, format="JPEG", quality=int(jpg_qual), optimize=True)
-                else:
-                    out.save(abs_path, format="PNG", optimize=True)
-                saved.append((str(abs_path), out_name, label, stw, sth))
+            with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for label,tw,th in targets:
+                    stw = max(1, int(round(tw*float(scale))))
+                    sth = max(1, int(round(th*float(scale))))
+                    out = resize_cover(img, stw, sth)
+                    label_safe = sanitize_label(label)
+                    out_name = f"{sanitize_label(base_title)}_{label_safe}_{stw}x{sth}.{fmt}"
+                    bio = io.BytesIO()
+                    if fmt in ("jpg","jpeg"):
+                        ensure_rgb(out).save(bio, format="JPEG", quality=int(jpg_qual), optimize=True)
+                    else:
+                        out.save(bio, format="PNG", optimize=True)
+                    data = bio.getvalue()
+                    zf.writestr(out_name, data)
+                    saved.append((out_name, data, label, stw, sth))
 
-            ss.generated_dir = str(out_dir)
+            zip_buf.seek(0)
+            ss.generated_zip = zip_buf.getvalue()
             ss.generated_files = saved
             ss.show_hs_tab = True
-            st.success(f"생성 완료 ✅  (총 {len(saved)}개) — 서버 폴더: {out_dir}")
-            st.info("브라우저는 '폴더 자체' 다운로드를 지원하지 않습니다. 개별 파일 확인 또는 다음 단계로 진행하세요.")
-            for p, fname, label, sw, sh in saved[:8]:
+
+            st.success(f"생성 완료 ✅  (총 {len(saved)}개)")
+            st.download_button("ZIP 다운로드", data=ss.generated_zip,
+                               file_name=f"{sanitize_label(base_title)}_resized.zip",
+                               mime="application/zip")
+
+            for fname, _, label, sw, sh in saved[:8]:
                 st.write(f"- {fname}  ({sw}x{sh})")
 
 # ───────────────────────────── 탭②: 허브스팟 연동 (파일 업로드) ─────────────────────────────
@@ -370,9 +363,9 @@ if ss.show_hs_tab and len(tab_objs) >= 2:
                         folder_id = f.get("id") or f.get("folder_id")
 
                     uploaded=[]
-                    for abs_path, fname, _, _, _ in ss.generated_files:
+                    for fname, data, _, _, _ in ss.generated_files:
                         with st.spinner(f"업로드 중… {fname}"):
-                            info = hs_upload_file(abs_path, folder_id, is_public=True)
+                            info = hs_upload_bytes(fname, data, folder_id, is_public=True)
                             file_url = info.get("url") or info.get("full_url") or info.get("cdnUrl") or ""
                             file_id  = info.get("id")
                             uploaded.append((fname, file_url, file_id))
@@ -419,13 +412,11 @@ if ss.show_link_tab and len(tab_objs) >= 3:
                     else:
                         st.warning("이메일 검색 결과가 없습니다.")
 
-            # MBM Wizard 이동
             go_col1, go_col2 = st.columns([1,3])
             with go_col1:
                 clicked = st.button("MBM Wizard 열기")
             if clicked:
                 try:
-                    # Streamlit 1.32+ (있으면)
                     st.switch_page("pages/01_mbm_magic_wizard.py")
                 except Exception:
                     st.markdown('<a href="/01_mbm_magic_wizard" target="_self">페이지로 이동</a>', unsafe_allow_html=True)
@@ -433,7 +424,6 @@ if ss.show_link_tab and len(tab_objs) >= 3:
             # 파일-에셋 매핑 안내(자동 추천)
             banner = next((u for u in ss.uploaded_files if "Landing_Page_banner"     in u[0] or "Landing Page_banner"     in u[0]), None)
             thumb  = next((u for u in ss.uploaded_files if "Landing_Page_Thumbnail"  in u[0] or "Landing Page_Thumbnail"  in u[0]), None)
-            speaker= next((u for u in ss.uploaded_files if "Speaker"                 in u[0]), None)
             header = next((u for u in ss.uploaded_files if "Email_Header"            in u[0] or "Email Header"            in u[0]), None)
 
             st.markdown("#### 자동 매핑 제안")
@@ -446,14 +436,13 @@ if ss.show_link_tab and len(tab_objs) >= 3:
                          disabled=not (ss.picked_page or ss.picked_email)):
                 try:
                     if ss.picked_page:
-                        page_id, page_name = ss.picked_page
+                        page_id, _ = ss.picked_page
                         if thumb:
                             set_page_featured_image(page_id, thumb[2])
                         if banner:
                             set_page_module_image(page_id, PAGE_TOP_SECTION_MODULE_KEY, banner[2])
-                        # (선택) Speaker 모듈도 필요 시 동일 방식으로 구현 가능
                     if ss.picked_email and header:
-                        email_id, email_name = ss.picked_email
+                        email_id, _ = ss.picked_email
                         set_email_header_image(email_id, EMAIL_HEADER_WIDGET_KEY, header[2])
 
                     st.success("연결 완료(설정된 키 기준). 반영이 안 보이면 모듈/필드 키를 확인해 주세요.")
