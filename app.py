@@ -107,7 +107,7 @@ with st.sidebar:
 # ===== 본문 설정 패널 (사이드바 → 본문 이동) =====
 st.markdown("### 설정")
 with st.container(border=True):
-    colA, colB, colC = st.columns([1,1,1])
+    colA, colC, colB = st.columns([1,1,1])
     with colA:
         fmt = st.selectbox("출력 포맷", ["jpg","jpeg","png"], index=0)
     with colC:
