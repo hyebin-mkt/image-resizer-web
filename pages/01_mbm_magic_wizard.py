@@ -452,5 +452,3 @@ if ss.results_links and (TAB3 in idx):
             st.components.v1.html(f"<script>navigator.clipboard.writeText({json.dumps(all_text)});</script>", height=0, width=0)
             st.toast("복사가 완료되었습니다. 메모장에 붙여넣기 하세요")
 
-# ---- 공통 바로가기/푸터 ----
-render_footer_links()
