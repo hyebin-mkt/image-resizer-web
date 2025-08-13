@@ -74,7 +74,14 @@ def quick_link(label: str, url: str):
 </a></div>''', unsafe_allow_html=True
     )
 
-
+def render_footer_links():
+    st.markdown("---")
+    st.subheader("🔗 바로가기")
+    quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
+    quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
+    quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view")
+    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
+    st.caption("© Chacha · chb0218@midasit.com")
 
 def ordinal(n: int) -> str:
     n = int(n)
