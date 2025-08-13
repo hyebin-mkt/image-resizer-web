@@ -491,7 +491,7 @@ if ss.mbm_submitted:
 if ss.results:
     with tabs[idx[TAB3]]:
         st.markdown("### ③ 최종 링크 공유")
-        st.success(f"MBM 생성 결과 – **{ss.results['title']}**")
+        st.success(f"MBM 생성 결과 – {ss.results['title']}")
 
         def link_box(title: str, items: list[tuple[str, str]], prefix_key: str):
             st.markdown(f"#### {title}")
