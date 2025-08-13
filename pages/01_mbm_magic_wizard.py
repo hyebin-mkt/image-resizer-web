@@ -12,36 +12,42 @@ st.set_page_config(page_title="MBM Magic Wizard", page_icon="🧚", layout="cent
 st.title("🧚🏻‍♂️ MBM Magic Wizard")
 st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
 
-# --- Quick links (sidebar) ---
-SIDEBAR_LINK_CSS = """
-<style>
-.sb-links a { text-decoration:none; }
-.sb-links .card {
-  padding:12px 14px; margin:6px 0;
-  border:1px solid #e5e7eb; border-radius:10px;
-  display:flex; align-items:center; justify-content:space-between;
-}
-.sb-links .card span.lbl { font-weight:600; }
-.sb-links .card span.ico { font-size:14px; opacity:.8; }
-</style>
-"""
-st.markdown(SIDEBAR_LINK_CSS, unsafe_allow_html=True)
-
-def sb_link(label: str, url: str):
+# ----- sidebar identical style -----
+def sidebar_quick_link(label: str, url: str):
     st.sidebar.markdown(
-        f'''<div class="sb-links">
-  <a href="{url}" target="_blank">
-    <div class="card"><span class="lbl">{label}</span><span class="ico">↗</span></div>
-  </a>
-</div>''', unsafe_allow_html=True
+        f'''
+<a href="{url}" target="_blank" style="text-decoration:none;">
+  <div style="
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 14px; margin:6px 0;
+      border:1px solid #e5e7eb; border-radius:12px;
+      background:#fff; transition:all .15s ease;">
+    <span style="font-weight:600; color:#111827;">{label}</span>
+    <span style="font-size:14px; color:#6b7280;">↗</span>
+  </div>
+</a>
+''',
+        unsafe_allow_html=True
     )
 
 with st.sidebar:
-    st.subheader("🔗 바로가기")
-    sb_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
-    sb_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
-    sb_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view")
-    st.caption("© Chacha · chb0218@midasit.com")
+    st.subheader("바로가기")
+    sidebar_quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
+    sidebar_quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
+    sidebar_quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view?utm_content=DAGtMIVovm8&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9b120a74ea")
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] .sidebar-copyright{
+      position: sticky; bottom: 18px; margin-top: 24px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.sidebar.markdown(
+        '<div class="sidebar-copyright" style="color:#6b7280; font-size:12px;">'
+        '© Chacha · <a href="mailto:chb0218@midasit.com" style="color:#6b7280; text-decoration:none;">chb0218@midasit.com</a>'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 # -----------------------
 # 공통 시크릿/상수
