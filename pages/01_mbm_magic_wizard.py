@@ -431,35 +431,58 @@ def hs_create_mbm_object(properties: dict) -> dict:
 
 # ---- 템플릿 ID 자동 탐색(404 대비) ----
 def guess_site_template_id_by_title(title: str) -> str | None:
-    """site-pages 리스트를 페이지네이션하며 name/title로 템플릿 추정"""
+    """Website pages 목록에서 name/pageTitle을 느슨하게 비교해 템플릿 ID 추정."""
+    def norm(s: str) -> str:
+        import re
+        return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+    want = norm(title).replace("[", "").replace("]", "")
     url = f"{HS_BASE}/cms/v3/pages/site-pages"
     after = None
-    for _ in range(20):  # 최대 2000개
+
+    for _ in range(30):  # 최대 3000개까지 탐색
         params = {"limit": 100, "archived": "false"}
-        if after: params["after"] = after
+        if after:
+            params["after"] = after
         r = requests.get(url, headers=HEADERS_JSON, params=params, timeout=30)
-        if r.status_code >= 400: break
+        if r.status_code >= 400:
+            break
         data = r.json()
+
         for it in data.get("results", []):
             name = (it.get("name") or "").strip()
             page_title = (it.get("pageTitle") or "").strip()
-            if name.lower() == title.lower() or page_title.lower() == title.lower():
+            n_name = norm(name).replace("[", "").replace("]", "")
+            n_pt = norm(page_title).replace("[", "").replace("]", "")
+            # 완전일치 또는 부분일치 허용
+            if want and (want == n_name or want == n_pt or want in n_name or want in n_pt):
                 return str(it.get("id"))
+
         after = data.get("paging", {}).get("next", {}).get("after")
-        if not after: break
+        if not after:
+            break
     return None
 
+
 def clone_site_page_resilient(template_id: str, clone_name: str) -> dict:
-    """잘못된 ID(예: 포털 ID)로 404가 나면 템플릿 타이틀로 ID 탐색 후 재시도"""
+    """잘못된 ID로 404가 나오는 경우 템플릿 '제목'으로 ID를 찾아 재시도."""
+    tid = str(template_id or "").strip()
+
+    # 포털 ID(예: 2495902)이거나 '짧은 숫자'면 의심 → 제목으로 먼저 교정
+    if tid == str(PORTAL_ID) or (tid.isdigit() and len(tid) <= 10):
+        cand = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
+        if cand:
+            tid = cand
+
     try:
-        return hs_clone_site_page(template_id, clone_name)
+        return hs_clone_site_page(tid, clone_name)
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
-            # 포털 ID를 잘못 넣은 케이스 등
             cand = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
             if cand:
                 return hs_clone_site_page(cand, clone_name)
         raise
+
 
 # =============== 탭 구성 ===============
 TAB1 = "MBM 오브젝트 제출"
@@ -808,11 +831,20 @@ if ss.mbm_submitted:
                     page_name = f"{ss.mbm_title}_landing page"
                     with st.spinner(f"웹페이지 생성 중… ({page_name})"):
                         # 잘못된 ID(포털 ID 등)일 경우 타이틀로 탐색 후 재시도
-                        tpl_id = LANDING_PAGE_TEMPLATE_ID
-                        if tpl_id == PORTAL_ID:
-                            cand = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
-                            if cand: tpl_id = cand
+                        tpl_id = str(LANDING_PAGE_TEMPLATE_ID or "").strip()
+
+                        # 포털 ID/짧은 숫자면 제목으로 추정
+                        if tpl_id == str(PORTAL_ID) or (tpl_id.isdigit() and len(tpl_id) <= 10):
+                        found = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
+                        if found:
+                                tpl_id = found
+                        else:
+                            st.error("Website 템플릿을 제목으로 찾지 못했습니다. WEBSITE_PAGE_TEMPLATE_TITLE을 확인하세요.")
+                            st.stop()
+
+                        # 404에도 한 번 더 제목으로 재시도하는 복원 호출
                         page_data = clone_site_page_resilient(tpl_id, page_name)
+
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         _ = hs_update_site_page(page_id, {"name": page_name})
                         slug = build_content_slug(ss.get("slug_country"), ss.get("slug_finish_ms"), ss.mbm_title)
