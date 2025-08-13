@@ -830,33 +830,38 @@ if ss.mbm_submitted:
                 if create_wp:
                     page_name = f"{ss.mbm_title}_landing page"
                     with st.spinner(f"웹페이지 생성 중… ({page_name})"):
-                        # 잘못된 ID(포털 ID 등)일 경우 타이틀로 탐색 후 재시도
+                        # 템플릿 ID 확정
                         tpl_id = str(LANDING_PAGE_TEMPLATE_ID or "").strip()
-
-                        # 포털 ID/짧은 숫자면 제목으로 추정
+                
+                        # 포털 ID 또는 너무 짧은 숫자면 제목으로 찾아 교정
                         if tpl_id == str(PORTAL_ID) or (tpl_id.isdigit() and len(tpl_id) <= 10):
-                        found = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
-                        if found:
+                            found = guess_site_template_id_by_title(WEBSITE_PAGE_TEMPLATE_TITLE)
+                            if found:
                                 tpl_id = found
-                        else:
-                            st.error("Website 템플릿을 제목으로 찾지 못했습니다. WEBSITE_PAGE_TEMPLATE_TITLE을 확인하세요.")
-                            st.stop()
-
+                            else:
+                                st.error("Website 템플릿을 제목으로 찾지 못했습니다. WEBSITE_PAGE_TEMPLATE_TITLE을 확인하세요.")
+                                st.stop()
+                
                         # 404에도 한 번 더 제목으로 재시도하는 복원 호출
                         page_data = clone_site_page_resilient(tpl_id, page_name)
-
+                
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         _ = hs_update_site_page(page_id, {"name": page_name})
+                
+                        # slug 계산/적용
                         slug = build_content_slug(ss.get("slug_country"), ss.get("slug_finish_ms"), ss.mbm_title)
                         if slug:
                             ok, _ = update_site_page_slug_safely(page_id, slug)
-                            if not ok: st.warning("콘텐츠 슬러그 업데이트 실패(필드명 불일치). 포털에서 수동 확인하세요.")
+                            if not ok:
+                                st.warning("콘텐츠 슬러그 업데이트 실패(필드명 불일치). 포털에서 수동 확인이 필요할 수 있어요.")
                         else:
                             st.warning("슬러그를 계산하지 못했습니다. (국가/종료일 확인 필요)")
+                
+                        # 퍼블리시 + 편집 URL
                         hs_push_live_site(page_id)
-                        # 원하는 편집 URL 형식
                         edit_url = f"https://app.hubspot.com/pages/{PORTAL_ID}/editor/{page_id}/content"
                         links["Website Page"].append(("편집", edit_url))
+
 
                 # Emails
                 if create_em:
