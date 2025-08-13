@@ -276,13 +276,13 @@ def clone_form_with_hidden_value(template_guid: str, new_name: str, hidden_value
     }
     return hs_create_form_v2(payload)
 
-# =============== 탭 구성 (새 탭은 오른쪽에 추가) ===============
+# --- 여기부터 교체 ---
 TAB1 = "MBM 오브젝트 제출"
 TAB2 = "후속 작업 선택"
 TAB3 = "최종 링크 공유"
 
 def _focus_tab(label: str):
-    # 렌더 타이밍 이슈 대비: 최대 ~4초 동안 200ms 간격 재시도 + MutationObserver
+    # 렌더 타이밍 이슈 대비: 200ms 간격 재시도 + MutationObserver
     import json as _json
     safe_label = _json.dumps(label)
     st.components.v1.html(
@@ -303,7 +303,6 @@ def _focus_tab(label: str):
           function tryClick() {{
             const doc = window.parent?.document || document;
             if (clickTarget(doc)) return true;
-            // iframe 내부까지 시도
             const frames = doc.querySelectorAll('iframe');
             for (const f of frames) {{
               try {{
@@ -315,9 +314,8 @@ def _focus_tab(label: str):
           let attempts = 0;
           const id = setInterval(() => {{
             attempts++;
-            if (tryClick() || attempts >= 20) clearInterval(id); // 20회 = 약 4초
+            if (tryClick() || attempts >= 20) clearInterval(id); // 약 4초
           }}, 200);
-          // DOM 변경 감지로 추가 시도
           const targetDoc = window.parent?.document || document;
           const obs = new MutationObserver(() => tryClick());
           obs.observe(targetDoc, {{subtree:true, childList:true}});
@@ -328,20 +326,30 @@ def _focus_tab(label: str):
         height=0, width=0
     )
 
-
 def make_tabs():
     labels = [TAB1]
-    if ss.mbm_submitted:
+    if st.session_state.mbm_submitted:
         labels.append(TAB2)
-    if ss.results:
+    if st.session_state.results:
         labels.append(TAB3)
-    t = st.tabs(labels, key="mbm_tabs")  # ← key 추가
+
+    # 일부 버전은 key 인자를 지원하지 않음 → 호환 처리
+    try:
+        t = st.tabs(labels, key="mbm_tabs")  # 지원되면 사용
+    except TypeError:
+        t = st.tabs(labels)                  # 미지원 버전 fallback
+
     idx = {label: i for i, label in enumerate(labels)}
-    if ss.active_stage == 2 and TAB2 in idx:
+
+    # 자동 포커스 (② 또는 ③로 전환)
+    if st.session_state.active_stage == 2 and TAB2 in idx:
         _focus_tab(TAB2)
-    elif ss.active_stage == 3 and TAB3 in idx:
+    elif st.session_state.active_stage == 3 and TAB3 in idx:
         _focus_tab(TAB3)
+
     return t, idx
+# --- 여기까지 교체 ---
+
 
 
 tabs, idx = make_tabs()
