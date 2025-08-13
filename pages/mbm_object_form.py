@@ -17,9 +17,9 @@ if not TOKEN:
 PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
 HUBSPOT_REGION = "na1"
 
-# Website Page 템플릿 (Website 전용)
-LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "192676141393")
-WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "")
+# Website Page 템플릿 (Website 전용) — 기본값은 주신 템플릿의 페이지 ID
+LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "194363146790")
+WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "[Template] Event Landing Page_GOM")
 
 # Email 템플릿
 EMAIL_TEMPLATE_ID = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
@@ -28,8 +28,8 @@ EMAIL_TEMPLATE_ID = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"
 
 # MBM 오브젝트 기본 설정
-MBM_HIDDEN_FIELD_NAME = "title"  # Register Form 숨김 필드 이름
-ACCESS_PASSWORD = "mid@sit0901"  # 본문 접근 보호 비밀번호
+MBM_HIDDEN_FIELD_NAME = "title"        # Register Form 숨김 필드 이름
+ACCESS_PASSWORD = "mid@sit0901"        # 본문 접근 보호 비밀번호
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -73,9 +73,9 @@ LONG_TEXT_FIELDS = {
 ss = st.session_state
 ss.setdefault("auth_ok", False)         # 접근 허용 여부
 ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
-ss.setdefault("mbm_submitted", False)   # ① 완료 여부 (MBM 오브젝트 생성 완료 또는 스킵)
+ss.setdefault("mbm_submitted", False)   # ① 완료 여부 (MBM 생성 완료 or 스킵)
 ss.setdefault("mbm_title", "")
-ss.setdefault("show_prop_form", False)  # ① 내부에서: 타이틀 '다음' 누르면 상세 폼 표시
+ss.setdefault("show_prop_form", False)  # ① 타이틀 다음 → 상세 폼 펼침
 ss.setdefault("results", None)          # {"title": str, "links": dict}
 ss.setdefault("mbm_object", None)       # {"id": "...", "typeId": "...", "url": "record url"}
 
@@ -327,38 +327,24 @@ def get_custom_object_schemas() -> dict:
     return r.json()
 
 def resolve_mbm_schema() -> dict | None:
-    """
-    MBM 오브젝트의 fullyQualifiedName, objectTypeId, properties를 찾아 반환
-    """
     data = get_custom_object_schemas()
-    # 1차: 이름/라벨에 mbm 포함
     for s in data.get("results", []):
         name = (s.get("name") or "").lower()
         label = (s.get("labels", {}).get("singular") or "").lower()
         if "mbm" in name or "mbm" in label:
             return s
-    # 2차: title 속성 보유
     for s in data.get("results", []):
-        props = s.get("properties", [])
-        if any(p.get("name") == "title" for p in props):
+        if any(p.get("name") == "title" for p in s.get("properties", [])):
             return s
     return None
 
 def get_mbm_properties_map() -> dict[str, dict]:
-    """
-    {propertyName: propertyMeta} 형태로 반환
-    propertyMeta 예: {"name": "...", "label": "...", "type": "string|number|enumeration|date|datetime|bool", "options":[...]}
-    """
     sch = resolve_mbm_schema()
     if not sch:
         raise RuntimeError("MBM 오브젝트 스키마를 찾지 못했습니다.")
-    props = sch.get("properties", [])
-    return {p.get("name"): p for p in props}
+    return {p.get("name"): p for p in sch.get("properties", [])}
 
 def hs_create_mbm_object(properties: dict) -> dict:
-    """
-    POST /crm/v3/objects/{fullyQualifiedName}
-    """
     schema = resolve_mbm_schema()
     if not schema:
         raise RuntimeError("MBM 오브젝트 스키마를 찾지 못했습니다. (포털에서 커스텀 오브젝트 정의를 확인하세요)")
@@ -434,6 +420,7 @@ def make_tabs():
         _focus_tab(TAB3)
     return t, idx
 
+# === 탭바는 단 한 번만 생성 (중복 렌더 방지) ===
 tabs, idx = make_tabs()
 
 # =============== 탭①: MBM 오브젝트 제출 (스키마 기반 위젯) ===============
@@ -462,6 +449,7 @@ with tabs[idx[TAB1]]:
                 st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
             else:
                 ss.show_prop_form = True
+                ss.mbm_submitted = False  # Skip 후 다시 폼 열릴 수 있도록 리셋
                 st.rerun()
     with cb:
         # 이미 생성한 경우 스킵
@@ -496,14 +484,13 @@ with tabs[idx[TAB1]]:
 
             # 열거형 → selectbox
             if ptype in ("enumeration", "enumerationoptions", "enum") or options:
-                # {label, value} → label을 보여주고 value를 저장
                 labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
                 values = [opt.get("value") for opt in options]
                 if not labels:
-                    # 옵션이 정의되어 있지 않아도 안전하게 text_input fallback
                     return st.text_input(lbl, key=key)
-                idx = st.selectbox(lbl, options=list(range(len(labels))), format_func=lambda i: labels[i], key=key)
-                return values[idx]
+                idx_opt = st.selectbox(lbl, options=list(range(len(labels))),
+                                       format_func=lambda i: labels[i], key=key)
+                return values[idx_opt]
 
             # 날짜/일시
             if ptype in ("date", "datetime"):
@@ -527,16 +514,13 @@ with tabs[idx[TAB1]]:
             return st.text_input(lbl, key=key)
 
         with st.form("mbm_props_form", clear_on_submit=False):
-            # hidden true
-            hidden_true = "true"
+            hidden_true = "true"  # auto_generate_campaign
 
-            # 필드 렌더 (스키마 매핑, 없으면 합리적 기본 위젯)
             values = {}
             for n in MBM_FIELDS:
                 meta = props_map.get(n, {})
                 if n == "title":
-                    # 타이틀은 타이틀 입력값을 기본으로
-                    values[n] = st.text_input(human_label(n), value=ss.mbm_title, key=f"fld_title_override")
+                    values[n] = st.text_input(human_label(n), value=ss.mbm_title, key="fld_title_override")
                 else:
                     values[n] = render_field(n, meta)
 
@@ -547,10 +531,8 @@ with tabs[idx[TAB1]]:
                 st.error("타이틀은 필수입니다.")
                 st.stop()
 
-            # payload 조립
             payload = {k: v for k, v in values.items() if v not in (None, "")}
-            # 날짜 키는 문자열(epoch ms) 그대로 보냄
-            payload[MBM_HIDDEN_TRUE] = hidden_true  # auto_generate_campaign=true
+            payload[MBM_HIDDEN_TRUE] = hidden_true
 
             try:
                 with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
@@ -568,7 +550,6 @@ with tabs[idx[TAB1]]:
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
-    tabs, idx = make_tabs()
     with tabs[idx[TAB2]]:
         st.markdown("### ② 후속 작업 선택")
         if ss.mbm_object:
@@ -640,7 +621,6 @@ if ss.mbm_submitted:
 
 # =============== 탭③: 최종 링크 공유 ===============
 if ss.results:
-    tabs, idx = make_tabs()
     with tabs[idx[TAB3]]:
         st.markdown("### ③ 최종 링크 공유")
         st.success(f"MBM 생성 결과 – **{ss.results['title']}**")
