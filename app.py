@@ -110,10 +110,10 @@ with st.container(border=True):
     colA, colB, colC = st.columns([1,1,1])
     with colA:
         fmt = st.selectbox("출력 포맷", ["jpg","jpeg","png"], index=0)
-    with colB:
-        jpg_qual = st.slider("JPEG 품질", min_value=60, max_value=100, value=88)
     with colC:
         scale = st.selectbox("출력 배율", SCALE_OPTIONS, index=SCALE_OPTIONS.index(2.0))
+    with colB:
+        jpg_qual = st.slider("JPEG 품질", min_value=60, max_value=100, value=88)
 
 # ===== 메인 업로드/처리 =====
 uploaded = st.file_uploader("이미지 업로드 (PNG/JPG 등, 1개)", type=[e.strip(".") for e in VALID_EXTS], accept_multiple_files=False)
