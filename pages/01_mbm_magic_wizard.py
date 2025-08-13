@@ -44,33 +44,43 @@ with st.sidebar:
     sidebar_quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
     sidebar_quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
     sidebar_quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view?utm_content=DAGtMIVovm8&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9b120a74ea")
+
+    # 🔽 여기 둘 다 'st.markdown', 그리고 반드시 sidebar 블록 안
     st.markdown("""
     <style>
-    [data-testid="stSidebar"] .sidebar-copyright{
-      position: sticky; bottom: 18px; margin-top: 24px;
-    }
+      [data-testid="stSidebar"] .sidebar-copy {
+        position: sticky; bottom: 18px; margin-top: 24px;
+      }
     </style>
     """, unsafe_allow_html=True)
-    st.sidebar.markdown(
-        '<div class="sidebar-copyright" style="color:#6b7280; font-size:12px;">'
+
+    st.markdown(
+        '<div class="sidebar-copy" style="color:#6b7280; font-size:12px;">'
         '© Chacha · <a href="mailto:chb0218@midasit.com" style="color:#6b7280; text-decoration:none;">chb0218@midasit.com</a>'
         '</div>',
         unsafe_allow_html=True
     )
 
 
+
 # --------------------------------------------------
 # 필수 시크릿
 # --------------------------------------------------
 TOKEN = st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN", "")
+PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
+WEBSITE_PAGE_TEMPLATE_ID = st.secrets.get("WEBSITE_PAGE_TEMPLATE_ID", "")
+EMAIL_TEMPLATE_ID = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
+REGISTER_FORM_TEMPLATE_GUID = st.secrets.get("REGISTER_FORM_TEMPLATE_GUID", "83e40756-9929-401f-901b-8e77830d38cf")
+
 if not TOKEN:
     st.error("Streamlit Secrets에 HUBSPOT_PRIVATE_APP_TOKEN이 없습니다.")
     st.stop()
 
-PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
-WEBSITE_PAGE_TEMPLATE_ID = st.secrets.get("WEBSITE_PAGE_TEMPLATE_ID", "")  # 반드시 채우기
-EMAIL_TEMPLATE_ID = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
-REGISTER_FORM_TEMPLATE_GUID = st.secrets.get("REGISTER_FORM_TEMPLATE_GUID", "83e40756-9929-401f-901b-8e77830d38cf")
+# ✅ 여기서 가드
+if not WEBSITE_PAGE_TEMPLATE_ID:
+    st.error("Secrets에 WEBSITE_PAGE_TEMPLATE_ID가 없습니다. (Website Page 템플릿 ID)")
+    st.stop()
+
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -78,17 +88,6 @@ HEADERS_JSON = {
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
-
-# --------------------------------------------------
-# 세션 상태
-# --------------------------------------------------
-ss = st.session_state
-ss.setdefault("active_stage", 1)          # 1=제출, 2=선택, 3=공유
-ss.setdefault("search_done", False)       # 검색 버튼을 눌렀는지
-ss.setdefault("search_results", [])       # 검색 결과 [(id,title)]
-ss.setdefault("selected_mbm_id", None)    # 선택한 MBM ID (있으면 편집)
-ss.setdefault("mbm_title", "")            # 사용자가 타이틀 입력
-ss.setdefault("results", None)            # 생성 결과
 
 # --------------------------------------------------
 # 보조 유틸
@@ -243,6 +242,8 @@ def make_tabs():
         _focus_tab(TAB3)
 
     return t, idx
+
+tabs, idx = make_tabs()
 
 
 # --------------------------------------------------
