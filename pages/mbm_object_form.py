@@ -1,7 +1,7 @@
 # pages/mbm_object_form.py
 # 🧚🏻‍♂️ MBM Magic Wizard — MBM 오브젝트 검색/생성 → 후속자산 자동화
 
-import json, re, uuid, datetime
+import json, re, uuid
 import requests
 import streamlit as st
 
@@ -29,7 +29,7 @@ HEADERS_JSON = {
     "Accept": "application/json",
 }
 
-# 템플릿(선택사항)
+# 템플릿(시크릿에서 관리 권장)
 TEMPLATE_SITE_PAGE_TITLE = st.secrets.get("TEMPLATE_SITE_PAGE_TITLE", "[Template] Event Landing Page_GOM")
 EMAIL_TEMPLATE_ID        = st.secrets.get("EMAIL_TEMPLATE_ID",        "")
 FORM_TEMPLATE_GUID       = st.secrets.get("FORM_TEMPLATE_GUID",       "")
@@ -45,33 +45,43 @@ ss.setdefault("mbm_object_id", "")        # 선택/생성된 MBM ID
 ss.setdefault("mbm_title", "")            # 선택/생성된 MBM Title
 ss.setdefault("search_keyword", "")
 ss.setdefault("search_results", [])       # [(id,title)]
-ss.setdefault("search_choice", "")        # 사용자가 드롭다운에서 고른 기존 오브젝트 id
+ss.setdefault("search_choice", "")        # 드롭다운에서 고른 기존 오브젝트 id
 ss.setdefault("results_links", None)      # {"Landing Page":[(label,url)...], "Email":[...], "Form":[...]}
 
 # -----------------------
-# 스타일: 복사/페이지네이션
+# 공통 UI 유틸 (복사, 바로가기/푸터)
 # -----------------------
 st.markdown("""
 <style>
-.mbm-copy-btn{
-  border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer;
-  width:36px; height:36px; display:flex; align-items:center; justify-content:center;
-}
+.mbm-copy-btn{border:1px solid #e5e7eb;border-radius:10px;background:#fff;cursor:pointer;
+  width:36px;height:36px;display:flex;align-items:center;justify-content:center;}
+.mbm-quick a {text-decoration:none;}
+.mbm-quick .card {padding:12px 14px;margin:6px 0;border:1px solid #e5e7eb;border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
 
 def copy_button_inline(text: str, key: str):
     safe = json.dumps(text or "")
     st.components.v1.html(f"""
-<div>
-  <button id="cpy_{key}" class="mbm-copy-btn" title="복사">📋</button>
-</div>
-<script>
-  document.getElementById("cpy_{key}").onclick = () => {{
-    navigator.clipboard.writeText({safe});
-  }};
-</script>
+<div><button id="cpy_{key}" class="mbm-copy-btn" title="복사">📋</button></div>
+<script>document.getElementById("cpy_{key}").onclick=()=>navigator.clipboard.writeText({safe});</script>
 """, height=40)
+
+def quick_link(label: str, url: str):
+    st.markdown(
+        f'''<div class="mbm-quick"><a href="{url}" target="_blank">
+<div class="card"><span style="font-weight:600;">{label}</span> <span>↗</span></div>
+</a></div>''', unsafe_allow_html=True
+    )
+
+def render_footer_links():
+    st.markdown("---")
+    st.subheader("🔗 바로가기")
+    quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
+    quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
+    quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view")
+    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
+    st.caption("© Chacha · chb0218@midasit.com")
 
 def ordinal(n: int) -> str:
     n = int(n)
@@ -79,21 +89,14 @@ def ordinal(n: int) -> str:
     else: suf = {1:"st",2:"nd",3:"rd"}.get(n % 10, "th")
     return f"{n}{suf}"
 
-def render_pagination(cur: int, total: int, key: str="pg"):
-    cols = st.columns(total + 2)
-    changed_to = None
-    with cols[0]:
-        if st.button("←", key=f"{key}_prev", disabled=(cur<=1)):
-            changed_to = max(1, cur-1)
-    for i in range(total):
-        idx = i+1
-        with cols[i+1]:
-            if st.button(f"{idx}", key=f"{key}_{idx}", type=("primary" if idx==cur else "secondary")):
-                changed_to = idx
-    with cols[-1]:
-        if st.button("→", key=f"{key}_next", disabled=(cur>=total)):
-            changed_to = min(total, cur+1)
-    return changed_to
+def focus_tab(label: str):
+    st.components.v1.html(f"""
+<script>(function(){{
+  function go(){{
+    const tabs=[...window.parent.document.querySelectorAll('[role="tab"]')];
+    for (const t of tabs) {{const tx=(t.innerText||'').trim(); if (tx.indexOf("{label}")!==-1){{t.click();return;}}}}
+  }} setTimeout(go,80); setTimeout(go,250); setTimeout(go,500);
+}})();</script>""", height=0)
 
 # -----------------------
 # MBM Object Type ID 해석
@@ -105,9 +108,8 @@ def resolve_mbm_object_type_id() -> str:
     url_hint = (st.secrets.get("MBM_OBJECT_URL") or "").strip()
     if url_hint:
         m = re.search(r"/objects/([^/]+)/", url_hint)
-        if m:
-            return m.group(1)
-    # schemas API로 "MBM" 찾기
+        if m: return m.group(1)
+    # schemas API로 "MBM" 찾기(권한 없으면 경고만)
     try:
         u = f"{HS_BASE}/crm/v3/schemas"
         r = requests.get(u, headers=HEADERS_JSON, timeout=30)
@@ -121,71 +123,28 @@ def resolve_mbm_object_type_id() -> str:
             pl   = (s.get("labels", {}).get("plural") or "").lower()
             if name == "mbm" or sg == "mbm" or pl == "mbm":
                 return s.get("objectTypeId") or ""
-    except Exception as e:
-        st.warning(f"MBM 오브젝트 타입 자동해결 실패: {e}")
+    except Exception:
+        pass
     return ""
 
 MBM_OBJECT_TYPE_ID = resolve_mbm_object_type_id()
-if not MBM_OBJECT_TYPE_ID:
-    st.info("⚠️ MBM Object Type ID를 찾지 못했습니다. 시크릿에 `MBM_OBJECT_TYPE_ID` 또는 `MBM_OBJECT_URL`을 설정해 주세요.")
 
 # -----------------------
-# 스키마(프로퍼티) 조회
-# -----------------------
-MBM_PROPERTIES = {}
-try:
-    if MBM_OBJECT_TYPE_ID:
-        u = f"{HS_BASE}/crm/v3/schemas/{MBM_OBJECT_TYPE_ID}"
-        r = requests.get(u, headers=HEADERS_JSON, timeout=30)
-        if r.status_code == 403:
-            st.warning("스키마 로드 권한이 없습니다. Private App 스코프에 `crm.schemas.custom.read` 추가 필요.")
-        else:
-            r.raise_for_status()
-            for p in r.json().get("properties", []):
-                MBM_PROPERTIES[p["name"]] = p
-except Exception as e:
-    st.warning(f"스키마 로드 실패: {e}")
-
-def is_multi_enum(prop: dict) -> bool:
-    if not prop: return False
-    t = (prop.get("type") or "").lower()
-    ft = (prop.get("fieldType") or "").lower()
-    return (t == "enumeration") and any(x in ft for x in ("checkbox", "multi"))
-
-def enum_options(prop: dict) -> list[str]:
-    out = []
-    for o in prop.get("options", []) or []:
-        v = o.get("value")
-        if v is not None: out.append(str(v))
-    return out
-
-def to_hs_value(prop: dict, py_value):
-    if py_value is None: return None
-    if is_multi_enum(prop):
-        if isinstance(py_value, (list, tuple, set)):
-            return ";".join([str(x) for x in py_value])
-        return str(py_value)
-    return str(py_value)
-
-# -----------------------
-# MBM 오브젝트 검색/생성 API
+# MBM 검색/생성
 # -----------------------
 def hs_search_mbm_by_title(query: str, limit=12):
-    if not MBM_OBJECT_TYPE_ID:
-        return []
+    if not MBM_OBJECT_TYPE_ID: return []
     u = f"{HS_BASE}/crm/v3/objects/{MBM_OBJECT_TYPE_ID}/search"
     payload = {"query": query, "properties": ["title"], "limit": limit}
     r = requests.post(u, headers=HEADERS_JSON, json=payload, timeout=30)
-    if r.status_code == 404:
-        return []
+    if r.status_code == 404: return []
     r.raise_for_status()
-    results = []
+    out=[]
     for it in r.json().get("results", []):
-        pid  = it.get("id")
-        prop = it.get("properties", {}) or {}
-        ttl  = prop.get("title") or "(제목 없음)"
-        results.append((pid, ttl))
-    return results
+        oid = it.get("id")
+        ttl = (it.get("properties") or {}).get("title") or "(제목 없음)"
+        out.append((oid, ttl))
+    return out
 
 def hs_create_mbm(properties: dict):
     if not MBM_OBJECT_TYPE_ID:
@@ -193,13 +152,12 @@ def hs_create_mbm(properties: dict):
     u = f"{HS_BASE}/crm/v3/objects/{MBM_OBJECT_TYPE_ID}"
     r = requests.post(u, headers=HEADERS_JSON, json={"properties": properties}, timeout=30)
     if r.status_code == 403:
-        st.error("MBM 오브젝트 생성 권한이 없습니다. Private App 스코프에 "
-                 "`crm.objects.custom.read`, `crm.objects.custom.write`를 추가하세요.")
+        st.error("MBM 오브젝트 생성 권한이 없습니다. 스코프에 `crm.objects.custom.read`, `crm.objects.custom.write` 추가 필요.")
     r.raise_for_status()
     return r.json()
 
 # -----------------------
-# CMS/Email/Form 유틸 (필요 시 사용)
+# CMS/Email/Form 유틸
 # -----------------------
 def find_site_template_by_title(title: str):
     try:
@@ -212,12 +170,12 @@ def find_site_template_by_title(title: str):
         return None
     return None
 
-def clone_site_page(template_id: str, new_name: str):
+def clone_site_page(tpl_id: str, new_name: str):
     u = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
     last=None
     for key in ("name","cloneName"):
         try:
-            r = requests.post(u, headers=HEADERS_JSON, json={"id": str(template_id), key: new_name}, timeout=45)
+            r = requests.post(u, headers=HEADERS_JSON, json={"id": str(tpl_id), key: new_name}, timeout=45)
             r.raise_for_status()
             return r.json()
         except requests.HTTPError as e:
@@ -226,8 +184,14 @@ def clone_site_page(template_id: str, new_name: str):
 
 def push_live_site_page(page_id: str):
     u = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}/draft/push-live"
-    r = requests.post(u, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
+    r = requests.post(u, headers={"Authorization": f"Bearer {TOKEN}", "Accept":"*/*"}, timeout=30)
     r.raise_for_status()
+
+def get_site_page(page_id: str):
+    u = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
+    r = requests.get(u, headers=HEADERS_JSON, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
 def clone_marketing_email(template_id: str, new_name: str):
     u = f"{HS_BASE}/marketing/v3/emails/clone"
@@ -269,24 +233,9 @@ def clone_register_form_with_hidden(template_guid: str, name: str, hidden_value:
     return forms_create_v2(payload)
 
 # -----------------------
-# 탭 헤더 구성(오른쪽으로 생김)
+# 탭
 # -----------------------
 TAB1, TAB2, TAB3 = "MBM 오브젝트 제출", "후속 작업 선택", "최종 링크 공유"
-
-def focus_tab(label: str):
-    st.components.v1.html(f"""
-<script>
-(function(){{
-  function go(){{
-    const tabs=[...window.parent.document.querySelectorAll('[role="tab"]')];
-    for (const t of tabs) {{
-      const tx=(t.innerText||'').trim();
-      if (tx.indexOf("{label}")!==-1){{ t.click(); return; }}
-    }}
-  }}
-  setTimeout(go,80); setTimeout(go,250); setTimeout(go,500);
-}})();
-</script>""", height=0)
 
 def make_tabs():
     labels=[TAB1]
@@ -301,7 +250,7 @@ def make_tabs():
 tabs, idx = make_tabs()
 
 # =========================================================
-# ① MBM 오브젝트 제출 — "검색 → 기존 선택" + "드롭다운 아래 새로 생성"
+# ① MBM 오브젝트 제출
 # =========================================================
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
@@ -310,7 +259,9 @@ with tabs[idx[TAB1]]:
     with st.form("search_form", border=True):
         c1, c2 = st.columns([5,1])
         with c1:
-            ss.search_keyword = st.text_input("키워드로 검색", value=ss.search_keyword, placeholder="예: [EU] 20250803 GTS NX Webinar", label_visibility="collapsed")
+            ss.search_keyword = st.text_input("키워드로 검색", value=ss.search_keyword,
+                                              placeholder="예: [EU] 20250803 GTS NX Webinar",
+                                              label_visibility="collapsed")
         with c2:
             copy_button_inline(ss.search_keyword, key="kw_copy")
 
@@ -323,20 +274,19 @@ with tabs[idx[TAB1]]:
             except Exception as e:
                 st.error(f"검색 실패: {e}")
 
-    # 드롭다운: 기존 오브젝트만 표시
+    # 검색 결과 + 하단 ‘생성/다음’
     if ss.search_keyword.strip():
-        labels = [f'{ttl}  ·  #{oid}' for oid, ttl in (ss.search_results or [])]
-        values = [oid for oid, _ in (ss.search_results or [])]
-        if labels:
+        if ss.search_results:
+            labels = [f'{ttl}  ·  #{oid}' for oid, ttl in ss.search_results]
+            values = [oid for oid, _ in ss.search_results]
             sel = st.selectbox("결과에서 선택", labels, index=0)
             ss.search_choice = values[labels.index(sel)]
         else:
             st.info("검색 결과가 없습니다.")
 
-        # 드롭다운 아래 — 새로 생성 버튼 + 다음 버튼
-        colA, colB = st.columns([1,1])
+        colA, colSpacer, colB = st.columns([2,4,1])  # '다음'을 오른쪽으로
         with colA:
-            if st.button(f'➕ "{ss.search_keyword}" 로 새 오브젝트 생성', type="secondary"):
+            if st.button(f'➕ "{ss.search_keyword}" 로 새 오브젝트 생성', type="secondary", use_container_width=True):
                 try:
                     created = hs_create_mbm({"title": ss.search_keyword.strip()})
                     ss.mbm_object_id = created.get("id")
@@ -346,26 +296,18 @@ with tabs[idx[TAB1]]:
                     st.error(f"HubSpot API 오류: {e.response.status_code} - {e.response.text}")
                 except Exception as e:
                     st.error(f"실패: {e}")
-
         with colB:
-            if st.button("다음 ▶", type="primary"):
-                try:
-                    if ss.mbm_object_id:
-                        ss.active_stage = 2
-                        st.rerun()
-                    elif ss.search_choice:
-                        # 기존 오브젝트 선택 후 다음
-                        sel_id = str(ss.search_choice)
-                        ss.mbm_object_id = sel_id
-                        # 제목은 검색결과에서 찾아 저장
-                        sel = next(((i,t) for i,t in ss.search_results if str(i)==sel_id), None)
-                        ss.mbm_title = sel[1] if sel else ss.search_keyword.strip()
-                        ss.active_stage = 2
-                        st.rerun()
-                    else:
-                        st.error("목록에서 하나를 선택하거나, 새 오브젝트를 먼저 생성하세요.")
-                except Exception as e:
-                    st.error(f"실패: {e}")
+            if st.button("다음▶", type="primary", use_container_width=True):
+                if ss.mbm_object_id:
+                    ss.active_stage = 2; st.rerun()
+                elif ss.search_choice:
+                    sel_id = str(ss.search_choice)
+                    ss.mbm_object_id = sel_id
+                    sel = next(((i,t) for i,t in ss.search_results if str(i)==sel_id), None)
+                    ss.mbm_title = sel[1] if sel else ss.search_keyword.strip()
+                    ss.active_stage = 2; st.rerun()
+                else:
+                    st.error("목록에서 하나를 선택하거나, 새 오브젝트를 먼저 생성하세요.")
 
 # =========================================================
 # ② 후속 작업 선택 — 페이지/메일/폼 생성(선택)
@@ -401,8 +343,15 @@ if ss.mbm_object_id and (TAB2 in idx):
                             cloned = clone_site_page(str(tpl.get("id")), clone_name)
                             pid = str(cloned.get("id") or cloned.get("objectId") or "")
                             push_live_site_page(pid)
-                            edit_url = f"https://app.hubspot.com/cms/{PORTAL}/website/pages/{pid}/edit"
+                            # 퍼블리시 후 최신 정보 재조회 → 보기 URL 포함
+                            info = {}
+                            try: info = get_site_page(pid)
+                            except Exception: pass
+                            public_url = info.get("url") or info.get("publicUrl") or ""
+                            edit_url   = f"https://app.hubspot.com/cms/{PORTAL}/website/pages/{pid}/edit"
                             links["Landing Page"].append(("편집", edit_url))
+                            if public_url:
+                                links["Landing Page"].append(("보기", public_url))
 
                 # 이메일 생성
                 if make_em and EMAIL_TEMPLATE_ID:
@@ -442,6 +391,7 @@ if ss.results_links and (TAB3 in idx):
         st.success(f"MBM 생성 결과 – **{ss.mbm_title}**")
 
         def link_box(title: str, items: list[tuple[str,str]], prefix_key: str):
+            if not items: return
             st.markdown(f"#### {title}")
             for i,(label,url) in enumerate(items, start=1):
                 box = st.container(border=True)
@@ -452,35 +402,27 @@ if ss.results_links and (TAB3 in idx):
                     with c2:
                         copy_button_inline(url, key=f"{prefix_key}_{i}_{uuid.uuid4()}")
 
-        if ss.results_links.get("Landing Page"):
-            link_box("Landing / Website Page", ss.results_links["Landing Page"], "lp")
-
-        if ss.results_links.get("Email"):
-            link_box("Marketing Emails", ss.results_links["Email"], "em")
-
-        if ss.results_links.get("Form"):
-            link_box("Register Form", ss.results_links["Form"], "fm")
+        link_box("Landing / Website Page", ss.results_links.get("Landing Page", []), "lp")
+        link_box("Marketing Emails",        ss.results_links.get("Email", []),        "em")
+        link_box("Register Form",           ss.results_links.get("Form", []),         "fm")
 
         st.divider()
         lines=[f"[MBM] 생성 결과 - {ss.mbm_title}",""]
-        if ss.results_links.get("Landing Page"):
-            lines.append("▼ Landing / Website Page")
-            for lb,u in ss.results_links["Landing Page"]:
-                lines.append(f"- {lb}: {u}")
-            lines.append("")
-        if ss.results_links.get("Email"):
-            lines.append("▼ Marketing Emails")
-            for lb,u in ss.results_links["Email"]:
-                lines.append(f"- {lb}: {u}")
-            lines.append("")
-        if ss.results_links.get("Form"):
-            lines.append("▼ Register Form")
-            for lb,u in ss.results_links["Form"]:
-                lines.append(f"- {lb}: {u}")
-            lines.append("")
+        for section in (("Landing / Website Page","Landing Page"),
+                        ("Marketing Emails","Email"),
+                        ("Register Form","Form")):
+            title,key = section
+            if ss.results_links.get(key):
+                lines.append(f"▼ {title}")
+                for lb,u in ss.results_links[key]:
+                    lines.append(f"- {lb}: {u}")
+                lines.append("")
         all_text="\n".join(lines)
 
         st.text_area("전체 결과 (미리보기)", value=all_text, height=180, label_visibility="collapsed")
         if st.button("전체 결과물 복사", type="primary"):
             st.components.v1.html(f"<script>navigator.clipboard.writeText({json.dumps(all_text)});</script>", height=0, width=0)
             st.toast("복사가 완료되었습니다. 메모장에 붙여넣기 하세요")
+
+# ---- 공통 바로가기/푸터 ----
+render_footer_links()
