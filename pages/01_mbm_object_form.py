@@ -12,6 +12,37 @@ st.set_page_config(page_title="🧚🏻‍♂️ MBM Magic Wizard", page_icon="�
 st.title("🧚🏻‍♂️ MBM Magic Wizard")
 st.caption("MBM 오브젝트 형성부터 마케팅 에셋까지 한번에 만들어줄게요.")
 
+# --- Quick links (sidebar) ---
+SIDEBAR_LINK_CSS = """
+<style>
+.sb-links a { text-decoration:none; }
+.sb-links .card {
+  padding:12px 14px; margin:6px 0;
+  border:1px solid #e5e7eb; border-radius:10px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.sb-links .card span.lbl { font-weight:600; }
+.sb-links .card span.ico { font-size:14px; opacity:.8; }
+</style>
+"""
+st.markdown(SIDEBAR_LINK_CSS, unsafe_allow_html=True)
+
+def sb_link(label: str, url: str):
+    st.sidebar.markdown(
+        f'''<div class="sb-links">
+  <a href="{url}" target="_blank">
+    <div class="card"><span class="lbl">{label}</span><span class="ico">↗</span></div>
+  </a>
+</div>''', unsafe_allow_html=True
+    )
+
+with st.sidebar:
+    st.subheader("🔗 바로가기")
+    sb_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
+    sb_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
+    sb_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view")
+    st.caption("© Chacha · chb0218@midasit.com")
+
 # -----------------------
 # 공통 시크릿/상수
 # -----------------------
@@ -73,15 +104,6 @@ def quick_link(label: str, url: str):
 <div class="card"><span style="font-weight:600;">{label}</span> <span>↗</span></div>
 </a></div>''', unsafe_allow_html=True
     )
-
-def render_footer_links():
-    st.markdown("---")
-    st.subheader("🔗 바로가기")
-    quick_link("Hubspot File 바로가기", "https://app.hubspot.com/files/2495902/")
-    quick_link("Hubspot Website 바로가기", "https://app.hubspot.com/page-ui/2495902/management/pages/site/all")
-    quick_link("MBM 가이드북", "https://www.canva.com/design/DAGtMIVovm8/eXz5TOekAVik-uynq1JZ1Q/view")
-    st.markdown('<div style="height:24px"></div>', unsafe_allow_html=True)
-    st.caption("© Chacha · chb0218@midasit.com")
 
 def ordinal(n: int) -> str:
     n = int(n)
