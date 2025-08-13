@@ -1,4 +1,4 @@
-# pages/mbm_object_form.py
+# pages/mbm_magic_wizard.py
 import json, uuid, time, datetime, re
 import requests
 import streamlit as st
