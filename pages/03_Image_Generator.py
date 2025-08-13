@@ -63,8 +63,16 @@ PRESETS = [
 ]
 SCALE_OPTIONS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
 
-TOKEN = st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN", "")
-PORTAL_ID = st.secrets.get("PORTAL_ID", "")
+# (안전 버전)
+import os  # 파일 상단 import 목록에 이미 있으면 생략
+
+TOKEN    = (st.secrets.get("HUBSPOT_PRIVATE_APP_TOKEN") or os.getenv("HUBSPOT_PRIVATE_APP_TOKEN") or "").strip()
+PORTAL_ID = (str(st.secrets.get("PORTAL_ID") or os.getenv("PORTAL_ID") or "")).strip()
+
+if not TOKEN or not PORTAL_ID:
+    st.error("Secrets에 HUBSPOT_PRIVATE_APP_TOKEN, PORTAL_ID를 설정해 주세요.")
+    st.stop()
+    
 MBM_FQN = st.secrets.get("MBM_FQN", "")  # e.g. p123456_mbm
 MBM_OBJECT_TYPE_ID = st.secrets.get("MBM_OBJECT_TYPE_ID", "")  # e.g. 2-10432789
 
