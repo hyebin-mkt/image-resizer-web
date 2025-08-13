@@ -17,7 +17,7 @@ if not TOKEN:
 PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
 HUBSPOT_REGION = "na1"
 
-# Website Page 템플릿 (Website 전용) — 기본값은 주신 템플릿의 페이지 ID
+# Website Page 템플릿 (Website 전용)
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "194363146790")
 WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "[Template] Event Landing Page_GOM")
 
@@ -27,9 +27,12 @@ EMAIL_TEMPLATE_ID = st.secrets.get("EMAIL_TEMPLATE_ID", "162882078001")
 # Register Form 템플릿(guid)
 REGISTER_FORM_TEMPLATE_GUID = "83e40756-9929-401f-901b-8e77830d38cf"
 
-# MBM 오브젝트 기본 설정
+# MBM 오브젝트 / 접근보호
 MBM_HIDDEN_FIELD_NAME = "title"        # Register Form 숨김 필드 이름
 ACCESS_PASSWORD = "mid@sit0901"        # 본문 접근 보호 비밀번호
+
+# 스키마 실패시 폴백용 HubSpot Form(임베드)
+FALLBACK_FORM_ID = st.secrets.get("MBM_FALLBACK_FORM_ID", "a9e1a5e8-4c46-461f-b823-13cc4772dc6c")
 
 HS_BASE = "https://api.hubapi.com"
 HEADERS_JSON = {
@@ -38,29 +41,30 @@ HEADERS_JSON = {
     "Accept": "application/json",
 }
 
-# 스키마에서 보여줄 필드(요청하신 내부명 순서)
+# 표시/제출할 필드 (내부명)
 MBM_FIELDS = [
     "title",
     "country",
     "mbm_type",
-    "city",
+    "city",  # 유일한 선택 항목(옵션)
     "location",
     "mbm_start_date",
     "mbm_finish_date",
-    "target_audience",
-    "description_of_detailed_targets___________",
-    "purpose_of_mbm",
+    "target_audience",   # 멀티 체크
     "expected_earnings",
-    "product__midas_",
+    "product__midas_",   # 멀티 체크
     "campaign_key_item",
     "market_conditions",
     "pain_point_of_target",
     "benefits",
+    "description_of_detailed_targets___________",
+    "purpose_of_mbm",
 ]
-# 항상 숨김 + True로 전송
-MBM_HIDDEN_TRUE = "auto_generate_campaign"
 
-# 긴 텍스트로 표시할 후보
+# 필수/선택 (city만 선택)
+REQUIRED_FIELDS = {f for f in MBM_FIELDS if f != "city"}
+
+# 긴 텍스트 후보
 LONG_TEXT_FIELDS = {
     "description_of_detailed_targets___________",
     "purpose_of_mbm",
@@ -69,36 +73,54 @@ LONG_TEXT_FIELDS = {
     "benefits",
 }
 
+# 라벨 오버라이드(요청 반영)
+LABEL_OVERRIDES = {
+    "title": "MBM 오브젝트 타이틀 *",
+    "country": "국가 *",
+    "mbm_type": "MBM 타입 *",
+    "city": "도시 (선택 사항)",  # optional
+    "location": "위치 (세미나 장소 또는 온라인 플랫폼명) *",
+    "mbm_start_date": "시작일 *",
+    "mbm_finish_date": "종료일 *",
+    "target_audience": "타겟 고객 유형 *",
+    "expected_earnings": "예상 기대매출 (달러 기준) *",
+    "product__midas_": "판매 타겟 제품 (MIDAS) *",
+    "campaign_key_item": "캠페인 키 아이템 (제품/서비스/옵션 출시, 업데이트 항목 등) *",
+    "market_conditions": "시장 상황 *",
+    "pain_point_of_target": "타겟 페인포인트 *",
+    "benefits": "핵심 고객가치 *",
+    "description_of_detailed_targets___________": "타겟 상세 설명 *",
+    "purpose_of_mbm": "목적 *",
+}
+
+# 멀티 체크로 표시할 필드
+MULTI_CHECK_FIELDS = {"target_audience", "product__midas_"}
+
 # =============== 세션 상태 ===============
 ss = st.session_state
-ss.setdefault("auth_ok", False)         # 접근 허용 여부
-ss.setdefault("auth_error", False)      # 접근 오류 플래그(입력란 아래 노출)
-ss.setdefault("active_stage", 1)        # 1=제출, 2=선택, 3=공유
-ss.setdefault("mbm_submitted", False)   # ① 완료 여부 (MBM 생성 완료 or 스킵)
+ss.setdefault("auth_ok", False)
+ss.setdefault("auth_error", False)
+ss.setdefault("active_stage", 1)         # 1=제출, 2=선택, 3=공유
+ss.setdefault("mbm_submitted", False)
 ss.setdefault("mbm_title", "")
-ss.setdefault("show_prop_form", False)  # ① 타이틀 다음 → 상세 폼 펼침
-ss.setdefault("results", None)          # {"title": str, "links": dict}
-ss.setdefault("mbm_object", None)       # {"id": "...", "typeId": "...", "url": "record url"}
+ss.setdefault("show_prop_form", False)
+ss.setdefault("prop_step", 1)            # 상세 폼 페이지(1~N)
+ss.setdefault("results", None)
+ss.setdefault("mbm_object", None)
 
-# =============== 본문 접근 암호 (입력란 아래에 에러 표시) ===============
+# =============== 본문 접근 암호 (입력란 아래 에러 표시) ===============
 if not ss.auth_ok:
     box = st.container(border=True)
     with box:
         st.subheader("🔒 Access")
         st.caption("해당 기능은 마이다스아이티 구성원만 입력이 가능합니다. MBM 에셋 생성을 위해 비밀번호를 입력해주세요.")
-
-        # 입력칸 바로 아래에 에러/도움말이 뜨도록 form으로 구성
         with st.form("access_gate"):
-            pwd = st.text_input(
-                "비밀번호", type="password",
-                label_visibility="collapsed",
-                placeholder="비밀번호를 입력하세요"
-            )
+            pwd = st.text_input("비밀번호", type="password",
+                                label_visibility="collapsed", placeholder="비밀번호를 입력하세요")
             if ss.auth_error:
                 st.error("암호가 일치하지 않습니다.")
                 st.help("도움말: 사내 공지 메일 또는 관리자에게 문의해주세요.")
             submitted = st.form_submit_button("접속", use_container_width=True)
-
         if submitted:
             if pwd == ACCESS_PASSWORD:
                 ss.auth_ok = True
@@ -141,36 +163,15 @@ def to_epoch_ms(d: datetime.date | None) -> str | None:
     return str(int(time.mktime(dt.timetuple()) * 1000))
 
 def human_label(internal: str) -> str:
-    mapping = {
-        "auto_generate_campaign": "자동 캠페인 생성 (숨김)",
-        "title": "MBM 오브젝트 타이틀",
-        "country": "국가",
-        "mbm_type": "MBM 타입",
-        "city": "도시",
-        "location": "장소",
-        "mbm_start_date": "시작일",
-        "mbm_finish_date": "종료일",
-        "target_audience": "타겟",
-        "description_of_detailed_targets___________": "타겟 상세 설명",
-        "purpose_of_mbm": "목적",
-        "expected_earnings": "예상 수익",
-        "product__midas_": "제품(MIDAS)",
-        "campaign_key_item": "캠페인 핵심 항목",
-        "market_conditions": "시장 상황",
-        "pain_point_of_target": "타겟 Pain Point",
-        "benefits": "핵심 베네핏",
-    }
-    return mapping.get(internal, internal)
+    return LABEL_OVERRIDES.get(internal, internal + (" *" if internal in REQUIRED_FIELDS else ""))
 
-# =============== HubSpot API ===============
-# --- Website Page 전용 ---
+# =============== HubSpot API(페이지/이메일/폼/스키마) ===============
 def hs_clone_site_page(template_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/cms/v3/pages/site-pages/clone"
     last = None
     for key in ("name", "cloneName"):
         r = requests.post(url, headers=HEADERS_JSON, json={"id": str(template_id), key: clone_name}, timeout=45)
-        if r.status_code < 400:
-            return r.json()
+        if r.status_code < 400: return r.json()
         last = r
     last.raise_for_status()
 
@@ -185,81 +186,12 @@ def hs_push_live_site(page_id: str) -> None:
     r = requests.post(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "*/*"}, timeout=30)
     r.raise_for_status()
 
-def hs_get_site_page(page_id: str) -> dict:
-    url = f"{HS_BASE}/cms/v3/pages/site-pages/{page_id}"
-    r = requests.get(url, headers=HEADERS_JSON, timeout=30)
-    r.raise_for_status()
-    return r.json()
-
-def extract_best_live_url(page_json: dict) -> str | None:
-    for k in ("publicUrl", "url", "absoluteUrl", "absolute_url", "publishedUrl"):
-        val = page_json.get(k)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return None
-
-# ---- Website pages 목록 검색 (제목/키워드로 자동 해결) ----
-def list_site_pages(limit_per_page: int = 100):
-    after = None
-    while True:
-        params = {"limit": limit_per_page}
-        if after:
-            params["after"] = after
-        r = requests.get(f"{HS_BASE}/cms/v3/pages/site-pages", headers=HEADERS_JSON, params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        items = data.get("results") or data.get("items") or []
-        for it in items:
-            yield it
-        after = (data.get("paging") or {}).get("next", {}).get("after")
-        if not after:
-            break
-
-def find_site_page_id_smart(title_hint: str | None) -> str | None:
-    title_hint = (title_hint or "").strip()
-    if title_hint:
-        for it in list_site_pages():
-            name = (it.get("name") or "").strip()
-            page_title = (it.get("pageTitle") or it.get("htmlTitle") or "").strip()
-            if name == title_hint or page_title == title_hint:
-                return str(it.get("id") or it.get("objectId") or "")
-    best = None; best_score = -1
-    for it in list_site_pages():
-        text = " ".join([
-            (it.get("name") or ""),
-            (it.get("pageTitle") or ""),
-            (it.get("htmlTitle") or "")
-        ]).lower()
-        score = 0
-        if "template" in text: score += 2
-        if "mbm" in text: score += 2
-        if "landing" in text: score += 1
-        if "webinar" in text: score += 1
-        if score > best_score:
-            best_score = score; best = it
-    if best and best_score > 0:
-        return str(best.get("id") or best.get("objectId") or "")
-    return None
-
-def clone_site_page_with_fallback(primary_id: str, clone_name: str, title_hint: str | None) -> dict:
-    try:
-        return hs_clone_site_page(primary_id, clone_name)
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            resolved = find_site_page_id_smart(title_hint)
-            if resolved:
-                return hs_clone_site_page(resolved, clone_name)
-        raise
-
-# ---- Emails ----
 def hs_clone_marketing_email(template_email_id: str, clone_name: str) -> dict:
     url = f"{HS_BASE}/marketing/v3/emails/clone"
     last_err = None
     for key in ("emailName", "name", "cloneName"):
         try:
-            r = requests.post(url, headers=HEADERS_JSON,
-                              json={"id": str(template_email_id), key: clone_name},
-                              timeout=45)
+            r = requests.post(url, headers=HEADERS_JSON, json={"id": str(template_email_id), key: clone_name}, timeout=45)
             r.raise_for_status()
             return r.json()
         except requests.HTTPError as e:
@@ -272,9 +204,8 @@ def hs_update_email_name(email_id: str, new_name: str):
     if r.status_code >= 400:
         st.warning(f"이메일 내부 이름 변경 실패: {r.status_code}")
 
-# ---- Forms v2: Register Form 복제 + 숨김값 주입 ----
+# ---- Forms v2 (Register Form) ----
 FORMS_V2 = "https://api.hubapi.com/forms/v2"
-
 def hs_get_form_v2(form_guid: str) -> dict:
     url = f"{FORMS_V2}/forms/{form_guid}"
     r = requests.get(url, headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"}, timeout=30)
@@ -416,29 +347,25 @@ def _focus_tab(label: str):
 
 def make_tabs():
     labels = [TAB1]
-    if ss.mbm_submitted:
-        labels.append(TAB2)
-    if ss.results:
-        labels.append(TAB3)
+    if ss.mbm_submitted: labels.append(TAB2)
+    if ss.results: labels.append(TAB3)
     try:
         t = st.tabs(labels, key="mbm_tabs")
     except TypeError:
         t = st.tabs(labels)
     idx = {label: i for i, label in enumerate(labels)}
-    if ss.active_stage == 2 and TAB2 in idx:
-        _focus_tab(TAB2)
-    elif ss.active_stage == 3 and TAB3 in idx:
-        _focus_tab(TAB3)
+    if ss.active_stage == 2 and TAB2 in idx: _focus_tab(TAB2)
+    elif ss.active_stage == 3 and TAB3 in idx: _focus_tab(TAB3)
     return t, idx
 
-# === 탭바는 단 한 번만 생성 (중복 렌더 방지) ===
+# === 탭바는 단 한 번만 생성 ===
 tabs, idx = make_tabs()
 
-# =============== 탭①: MBM 오브젝트 제출 (스키마 기반 위젯) ===============
+# =============== 탭①: MBM 오브젝트 제출 (페이지네이션 + 검증 + 폴백) ===============
 with tabs[idx[TAB1]]:
     st.markdown("### ① MBM 오브젝트 제출")
 
-    # 1-1) 타이틀 먼저 입력 → [다음] 누르면 상세 폼이 펼쳐짐
+    # (A) 타이틀 설정
     st.markdown("**MBM 오브젝트 타이틀 설정**")
     st.markdown("네이밍 규칙: `[국가코드] YYYYMMDD 웨비나명` 형식으로 입력하세요.")
     c1, c2 = st.columns([6, 1])
@@ -460,10 +387,10 @@ with tabs[idx[TAB1]]:
                 st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
             else:
                 ss.show_prop_form = True
-                ss.mbm_submitted = False  # Skip 후 다시 폼 열릴 수 있도록 리셋
+                ss.mbm_submitted = False
+                ss.prop_step = 1
                 st.rerun()
     with cb:
-        # 이미 생성한 경우 스킵
         if st.button("이미 생성했어요 ▶ 스킵", use_container_width=True):
             if not ss.mbm_title:
                 st.error("타이틀을 입력해야 다음 단계로 이동할 수 있어요.")
@@ -475,27 +402,83 @@ with tabs[idx[TAB1]]:
     with cc:
         st.empty()
 
-    # 1-2) 상세 속성 폼 (타이틀 제출 후 표시) — 스키마 기반 위젯 (+403 폴백)
+    # (B) 상세 속성 폼 (스키마 시도 → 실패시 폴백 iFrame)
     if ss.show_prop_form and not ss.mbm_submitted:
         st.markdown("---")
         st.markdown("#### MBM 오브젝트 세부 항목")
 
-        # 스키마 메타 불러오기 (403/401 → 경고 후 폴백)
+        # 스키마 로드
+        schema_failed = False
         try:
             props_map = get_mbm_properties_map()
         except requests.HTTPError as e:
-            code = e.response.status_code if e.response is not None else None
-            if code in (401, 403):
-                st.warning(
-                    "스키마 조회 권한이 없어 기본 입력 위젯으로 표시합니다. "
-                    "관리자에게 Private App 권한에 **crm.schemas.read**(CRM Schemas Read)을 추가 요청하세요."
-                )
-            else:
-                st.error(f"스키마 로드 실패: {e}")
-            props_map = {}
-        except Exception as e:
-            st.error(f"스키마 로드 실패: {e}")
-            props_map = {}
+            schema_failed = True
+        except Exception:
+            schema_failed = True
+
+        # ── 폴백: HubSpot Form iFrame 임베드 ──────────────────────────
+        if schema_failed:
+            st.warning(
+                "스키마 조회 권한이 없어 기본 폼 대신 임시 HubSpot 폼을 표시합니다. "
+                "제출 후 아래 버튼으로 다음 단계로 이동하세요. (관리자에게 **crm.schemas.read** 권한 추가 요청 권장)"
+            )
+            html = f"""
+            <div id="hubspot-form"></div>
+            <script>
+            (function(){{
+              var s=document.createElement('script');
+              s.src="https://js.hsforms.net/forms/v2.js"; s.async=true;
+              s.onload=function(){{
+                if(!window.hbspt) return;
+                window.hbspt.forms.create({{
+                  region:"{HUBSPOT_REGION}",
+                  portalId:"{PORTAL_ID}",
+                  formId:"{FALLBACK_FORM_ID}",
+                  target:"#hubspot-form",
+                  inlineMessage:"제출 완료! 아래 버튼으로 다음 단계로 이동하세요."
+                }});
+              }};
+              document.body.appendChild(s);
+            }})();
+            </script>
+            """
+            st.components.v1.html(html, height=1200, scrolling=False)
+            if st.button("임시 폼 제출 완료 → ‘후속 작업 선택’ 이동", type="primary"):
+                ss.mbm_submitted = True
+                ss.active_stage = 2
+                st.rerun()
+            st.stop()
+
+        # ── 정상: 스키마 기반 입력 폼 (페이지네이션) ─────────────────────
+        # 필드를 3페이지로 나누기
+        PAGES = [
+            ["country", "mbm_type", "city", "location"],
+            ["mbm_start_date", "mbm_finish_date", "target_audience", "expected_earnings", "product__midas_"],
+            ["campaign_key_item", "market_conditions", "pain_point_of_target", "benefits",
+             "description_of_detailed_targets___________", "purpose_of_mbm"],
+        ]
+        total_steps = len(PAGES)
+        ss.prop_step = max(1, min(ss.prop_step, total_steps))
+
+        def render_multi_check(name: str, meta: dict, label: str):
+            opts = meta.get("options") or []
+            # 라벨->값 맵
+            labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
+            values = [o.get("value") for o in opts]
+            # 선택 상태
+            def_key = f"mchk_{name}"
+            selected: set = set(ss.get(def_key) or [])
+            # 2열 체크박스 그리드
+            cols = st.columns(2)
+            for i, (lab, val) in enumerate(zip(labels, values)):
+                col = cols[i % 2]
+                with col:
+                    ck = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
+                if ck: selected.add(val)
+                else: selected.discard(val)
+            ss[def_key] = list(selected)
+            # CRM 제출 형식(세미콜론 연결)
+            return ";".join(ss[def_key])
 
         def render_field(name: str, meta: dict):
             lbl = human_label(name)
@@ -503,7 +486,12 @@ with tabs[idx[TAB1]]:
             options = meta.get("options") or []
             key = f"fld_{name}"
 
-            # 열거형 → selectbox
+            # 멀티 체크 필드
+            if name in MULTI_CHECK_FIELDS:
+                st.markdown(f"**{LABEL_OVERRIDES.get(name, lbl)}**")
+                return render_multi_check(name, meta, lbl)
+
+            # 열거형(단일)
             if ptype in ("enumeration", "enumerationoptions", "enum") or options:
                 labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
                 values = [opt.get("value") for opt in options]
@@ -518,56 +506,86 @@ with tabs[idx[TAB1]]:
                 d = st.date_input(lbl, value=None, format="YYYY-MM-DD", key=key)
                 return to_epoch_ms(d) if d else None
 
-            # 불리언
-            if ptype in ("bool", "boolean"):
-                v = st.checkbox(lbl, value=False, key=key)
-                return "true" if v else "false"
+            # 숫자 (예상 기대매출 등)
+            if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", key=key)
+                return str(int(v)) if v is not None else None
 
-            # 숫자
-            if ptype in ("number", "integer", "long", "double"):
-                return str(int(st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", key=key)))
-
-            # 긴 텍스트 후보 → text_area
+            # 긴 텍스트
             if name in LONG_TEXT_FIELDS:
                 return st.text_area(lbl, height=100, key=key)
 
-            # 기본: 텍스트
+            # 기본 텍스트
             return st.text_input(lbl, key=key)
 
-        with st.form("mbm_props_form", clear_on_submit=False):
-            hidden_true = "true"  # auto_generate_campaign
-
-            values = {}
-            for n in MBM_FIELDS:
-                meta = props_map.get(n, {})
-                if n == "title":
-                    values[n] = st.text_input(human_label(n), value=ss.mbm_title, key="fld_title_override")
-                else:
-                    values[n] = render_field(n, meta)
-
-            submitted_obj = st.form_submit_button("MBM 오브젝트 생성하기", type="primary")
-
-        if submitted_obj:
-            if not values.get("title"):
-                st.error("타이틀은 필수입니다.")
-                st.stop()
-
-            payload = {k: v for k, v in values.items() if v not in (None, "")}
-            payload[MBM_HIDDEN_TRUE] = hidden_true
-
-            try:
-                with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
-                    created = hs_create_mbm_object(payload)
-                    ss.mbm_object = created
-                    ss.mbm_title = values["title"]
-                    ss.mbm_submitted = True
-                    ss.active_stage = 2
-                    st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
+        # 상단 네비 + 입력 영역(박스)
+        nav = st.container()
+        form_box = st.container(border=True)
+        with nav:
+            col_prev, col_ctr, col_next = st.columns([1,1,1])
+            with col_prev:
+                if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True):
+                    ss.prop_step -= 1
                     st.rerun()
-            except requests.HTTPError as http_err:
-                st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
-            except Exception as e:
-                st.error(f"실패: {e}")
+            with col_ctr:
+                st.markdown(f"<div style='text-align:center;'>페이지 {ss.prop_step} / {total_steps}</div>", unsafe_allow_html=True)
+            with col_next:
+                if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True):
+                    ss.prop_step += 1
+                    st.rerun()
+
+        with form_box:
+            # 현재 페이지 필드 렌더
+            cols = st.columns(2)
+            current_fields = PAGES[ss.prop_step-1]
+            for i, fname in enumerate(current_fields):
+                meta = props_map.get(fname, {})
+                with cols[i % 2]:
+                    # title은 여기서도 보여줄 수 있지만 이미 위에서 입력했으니 생략
+                    if fname == "title":
+                        continue
+                    render_field(fname, meta)
+
+        # (버튼은 박스 바깥)
+        # 필수 검증 + 생성
+        if st.button("MBM 오브젝트 생성하기", type="primary"):
+            # 값 모으기
+            payload = {"title": ss.mbm_title}
+            missing = []
+
+            def get_val_for(name: str):
+                if name in MULTI_CHECK_FIELDS:
+                    # 세미콜론 문자열
+                    return ";".join(ss.get(f"mchk_{name}", [])) or None
+                val = ss.get(f"fld_{name}")
+                return val
+
+            for n in MBM_FIELDS:
+                if n == "title": 
+                    continue
+                v = get_val_for(n)
+                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                    missing.append(n)
+                elif v not in (None, ""):
+                    payload[n] = v
+
+            if missing:
+                st.error("모든 필수 항목을 작성해주세요")
+            else:
+                # 자동 캠페인 생성 플래그
+                payload["auto_generate_campaign"] = "true"
+                try:
+                    with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
+                        created = hs_create_mbm_object(payload)
+                        ss.mbm_object = created
+                        ss.mbm_submitted = True
+                        ss.active_stage = 2
+                        st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
+                        st.rerun()
+                except requests.HTTPError as http_err:
+                    st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+                except Exception as e:
+                    st.error(f"실패: {e}")
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
@@ -583,7 +601,7 @@ if ss.mbm_submitted:
                 st.text_input("MBM Title", value=ss.mbm_title, disabled=True, label_visibility="collapsed")
             with c2:
                 st.markdown("**생성할 자산**")
-                make_wp = st.checkbox("웹페이지 복제", value=True)  # Website 전용
+                make_wp = st.checkbox("웹페이지 복제", value=True)
                 make_em = st.checkbox("이메일 복제", value=True)
                 email_count = st.number_input("이메일 복제 개수", min_value=1, max_value=10, value=1, step=1)
 
@@ -592,13 +610,11 @@ if ss.mbm_submitted:
         if submitted_actions:
             links = {"Website Page": [], "Email": [], "Form": []}
             try:
-                # Website Page (편집 링크로 제공)
+                # Website Page → 편집 링크 제공
                 if make_wp:
                     page_name = f"{ss.mbm_title}_landing page"
                     with st.spinner(f"웹페이지 복제 중… ({page_name})"):
-                        page_data = clone_site_page_with_fallback(
-                            LANDING_PAGE_TEMPLATE_ID, page_name, WEBSITE_PAGE_TEMPLATE_TITLE
-                        )
+                        page_data = hs_clone_site_page(LANDING_PAGE_TEMPLATE_ID, page_name)
                         page_id = str(page_data.get("id") or page_data.get("objectId") or "")
                         hs_update_site_page_name(page_id, page_name)
                         hs_push_live_site(page_id)
@@ -661,8 +677,6 @@ if ss.results:
             link_box("Register Form", ss.results["links"]["Form"], "fm")
 
         st.divider()
-
-        # 전체 결과 텍스트 + 복사 버튼(아래)
         lines = [f"[MBM] 생성 결과 - {ss.results['title']}", ""]
         if ss.results["links"].get("Website Page"):
             lines.append("▼ Website Page")
@@ -679,7 +693,6 @@ if ss.results:
             for label, url in ss.results["links"]["Form"]:
                 lines.append(f"- {label}: {url}")
             lines.append("")
-
         all_text = "\n".join(lines)
         st.text_area("전체 결과 (미리보기)", value=all_text, height=180, label_visibility="collapsed")
         if st.button("전체 결과물 복사", type="primary"):
