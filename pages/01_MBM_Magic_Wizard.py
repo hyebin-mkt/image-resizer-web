@@ -108,15 +108,6 @@ def _get_options(meta: dict, name: str):
 
 # 스키마 옵션이 비어있을 때 사용할 기본 옵션
 DEFAULT_ENUM_OPTIONS = {
-    "target_audience": [
-        "New customer 신규 판매",
-        "Existing Customers (Renewal) MODS 재계약",
-        "Existing Customers (Up sell)",
-        "Existing Customers (Cross Sell)",
-        "Existing Customers (Additional) 추가 판매",
-        "Existing Customers (Retroactive) 소급 판매",
-        "M-collection (M-collection 전환)",
-    ],
     "product__midas_": [
         "MIDAS Civil",
         "MIDAS FEA NX",
@@ -670,64 +661,56 @@ with tabs[idx[TAB1]]:
             ss[sel_key] = list(selected)
             return ";".join(ss[sel_key])
 
-        def render_field(name: str, meta: dict):
-            lbl = LABEL_OVERRIDES.get(name, human_label(name))
-            ptype = (meta.get("type") or "").lower()
-            options = _get_options(meta, name)
-            base = f"fld_{name}"  # 내부 상태 키
+       def _get_options(meta: dict, name: str):
+    ptype = (meta.get("type") or "").lower()
+    opts = meta.get("options") or []
+    # 하드코딩 옵션은 '열거형'일 때만
+    if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
+        if name in DEFAULT_ENUM_OPTIONS:
+            return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
+    return opts
 
-            if name in MULTI_CHECK_FIELDS:
-                st.markdown(lbl)
-                return render_multi_check(name, meta)
-
-            if ptype in ("enumeration", "enumerationoptions", "enum") or options:
-                labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
-                values = [opt.get("value") for opt in options]
-                if not labels:
-                    # 위젯키와 상태키 분리(세션충돌 방지)
-                    wkey = f"{base}_ti"
-                    val = st.text_input(lbl, value=ss.get(base, ""), key=wkey)
-                    ss[base] = val
-                    return val
-                cur_val = ss.get(base)
+    def render_field(name: str, meta: dict):
+        lbl = LABEL_OVERRIDES.get(name, human_label(name))
+        ptype = (meta.get("type") or "").lower()
+        options = _get_options(meta, name)
+        base = f"fld_{name}"
+    
+        # 멀티체크: 열거형인 경우에만
+        if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
+            st.markdown(lbl)
+            return render_multi_check(name, meta)
+    
+        # 단일 선택: '타입'이 열거형일 때만
+        if ptype in ("enumeration", "enum", "enumerationoptions"):
+            labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
+            values = [opt.get("value") for opt in options]
+            if labels:
+                cur_val = st.session_state.get(base)
                 default_index = values.index(cur_val) if cur_val in values else 0
                 idx_opt = st.selectbox(lbl, options=list(range(len(labels))),
                                        index=default_index,
                                        format_func=lambda i: labels[i],
                                        key=f"{base}_idx")
-                ss[base] = values[idx_opt]
-                return ss[base]
-
-            if ptype in ("date", "datetime"):
-                prev_ms = ss.get(base)
-                default_date = None
-                if prev_ms:
-                    try:
-                        default_date = datetime.date.fromtimestamp(int(prev_ms)/1000)
-                    except Exception:
-                        default_date = None
-                d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
-                val = to_epoch_ms(d) if d else None
-                ss[base] = val
-                return val
-
-            if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
-                prev = float(ss.get(base, 0) or 0)
-                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
-                ss[base] = str(int(v))
-                return ss[base]
-
-            if name in LONG_TEXT_FIELDS:
-                prev = ss.get(base, "")
-                val = st.text_area(lbl, height=100, value=prev, key=f"{base}_txt")
-                ss[base] = val
-                return val
-
-            # 일반 텍스트: 위젯키/상태키 분리(에러 방지)
-            prev = ss.get(base, "")
-            val = st.text_input(lbl, value=prev, key=f"{base}_ti")
-            ss[base] = val
+                st.session_state[base] = values[idx_opt]
+                return st.session_state[base]
+            # (옵션이 없으면 일반 텍스트)
+            val = st.text_input(lbl, value=st.session_state.get(base, ""), key=f"{base}_ti")
+            st.session_state[base] = val
             return val
+    
+        # 숫자형은 number_input로 강제 (문자 방지)
+        if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+            prev = float(st.session_state.get(base, 0) or 0)
+            v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
+            st.session_state[base] = str(int(v))
+            return st.session_state[base]
+    
+        # 긴 텍스트/일반 텍스트 등 나머지는 기존 그대로…
+        prev = st.session_state.get(base, "")
+        val = st.text_input(lbl, value=prev, key=f"{base}_ti")
+        st.session_state[base] = val
+        return val
 
         # ---- 입력 영역(페이지별 레이아웃) ----
         form_box = st.container(border=True)
