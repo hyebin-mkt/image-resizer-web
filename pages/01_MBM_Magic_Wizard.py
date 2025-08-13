@@ -94,7 +94,17 @@ LABEL_OVERRIDES = {
 }
 
 # 멀티 체크 필드
-MULTI_CHECK_FIELDS = {"target_audience", "product__midas_"}
+MULTI_CHECK_FIELDS = {"product__midas_"}   # ← target_audience 제거
+def _get_options(meta: dict, name: str):
+    ptype = (meta.get("type") or "").lower()
+    opts = meta.get("options") or []
+
+    # ★ 하드코딩 기본 옵션은 진짜 '열거형'일 때만 사용
+    if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
+        if name in DEFAULT_ENUM_OPTIONS:
+            return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
+
+    return opts
 
 # 스키마 옵션이 비어있을 때 사용할 기본 옵션
 DEFAULT_ENUM_OPTIONS = {
