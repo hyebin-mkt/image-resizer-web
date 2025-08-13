@@ -639,77 +639,94 @@ with tabs[idx[TAB1]]:
         total_steps = len(PAGES)
         ss.prop_step = max(1, min(ss.prop_step, total_steps))
 
-        # --- 위젯 렌더러들 ---
-        def _get_options(meta: dict, name: str):
-            opts = meta.get("options") or []
-            if not opts and name in DEFAULT_ENUM_OPTIONS:
+        # --- 위젯 렌더러들 (전부 4칸 스페이스 들여쓰기로 통일) ---
+    def _get_options(meta: dict, name: str):
+        ptype = (meta.get("type") or "").lower()
+        opts = meta.get("options") or []
+        # 열거형 타입일 때만 기본 옵션 폴백 적용
+        if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
+            if name in DEFAULT_ENUM_OPTIONS:
                 return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
-            return opts
-
-        def render_multi_check(name: str, meta: dict):
-            opts = _get_options(meta, name)
-            labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
-            values = [o.get("value") for o in opts]
-            sel_key = f"mchk_{name}"
-            selected: set = set(ss.get(sel_key) or [])
-            cols = st.columns(2)
-            for i, (lab, val) in enumerate(zip(labels, values)):
-                with cols[i % 2]:
-                    ck = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
-                if ck: selected.add(val)
-                else: selected.discard(val)
-            ss[sel_key] = list(selected)
-            return ";".join(ss[sel_key])
-
-       def _get_options(meta: dict, name: str):
-    ptype = (meta.get("type") or "").lower()
-    opts = meta.get("options") or []
-    # 하드코딩 옵션은 '열거형'일 때만
-    if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
-        if name in DEFAULT_ENUM_OPTIONS:
-            return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
-    return opts
-
+        return opts
+    
+    def render_multi_check(name: str, meta: dict):
+        opts = _get_options(meta, name)
+        labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
+        values = [o.get("value") for o in opts]
+        sel_key = f"mchk_{name}"
+        selected = set(ss.get(sel_key) or [])
+        cols = st.columns(2)
+        for i, (lab, val) in enumerate(zip(labels, values)):
+            with cols[i % 2]:
+                checked = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
+            if checked:
+                selected.add(val)
+            else:
+                selected.discard(val)
+        ss[sel_key] = list(selected)
+        return ";".join(ss[sel_key])
+    
     def render_field(name: str, meta: dict):
         lbl = LABEL_OVERRIDES.get(name, human_label(name))
         ptype = (meta.get("type") or "").lower()
         options = _get_options(meta, name)
         base = f"fld_{name}"
     
-        # 멀티체크: 열거형인 경우에만
+        # 멀티체크는 열거형 타입일 때만
         if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
             st.markdown(lbl)
             return render_multi_check(name, meta)
     
-        # 단일 선택: '타입'이 열거형일 때만
+        # 단일 선택(드롭다운): 열거형 타입일 때만
         if ptype in ("enumeration", "enum", "enumerationoptions"):
             labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
             values = [opt.get("value") for opt in options]
             if labels:
-                cur_val = st.session_state.get(base)
+                cur_val = ss.get(base)
                 default_index = values.index(cur_val) if cur_val in values else 0
                 idx_opt = st.selectbox(lbl, options=list(range(len(labels))),
                                        index=default_index,
                                        format_func=lambda i: labels[i],
                                        key=f"{base}_idx")
-                st.session_state[base] = values[idx_opt]
-                return st.session_state[base]
-            # (옵션이 없으면 일반 텍스트)
-            val = st.text_input(lbl, value=st.session_state.get(base, ""), key=f"{base}_ti")
-            st.session_state[base] = val
+                ss[base] = values[idx_opt]
+                return ss[base]
+            # 옵션이 비어있으면 텍스트 입력으로 폴백
+            val = st.text_input(lbl, value=ss.get(base, ""), key=f"{base}_ti")
+            ss[base] = val
             return val
     
-        # 숫자형은 number_input로 강제 (문자 방지)
-        if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
-            prev = float(st.session_state.get(base, 0) or 0)
-            v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
-            st.session_state[base] = str(int(v))
-            return st.session_state[base]
+        # 날짜
+        if ptype in ("date", "datetime"):
+            prev_ms = ss.get(base)
+            default_date = None
+            if prev_ms:
+                try:
+                    default_date = datetime.date.fromtimestamp(int(prev_ms) / 1000)
+                except Exception:
+                    default_date = None
+            d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
+            val = to_epoch_ms(d) if d else None
+            ss[base] = val
+            return val
     
-        # 긴 텍스트/일반 텍스트 등 나머지는 기존 그대로…
-        prev = st.session_state.get(base, "")
+        # 숫자
+        if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+            prev = float(ss.get(base, 0) or 0)
+            v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
+            ss[base] = str(int(v))
+            return ss[base]
+    
+        # 긴 텍스트
+        if name in LONG_TEXT_FIELDS:
+            prev = ss.get(base, "")
+            val = st.text_area(lbl, height=100, value=prev, key=f"{base}_txt")
+            ss[base] = val
+            return val
+    
+        # 일반 텍스트
+        prev = ss.get(base, "")
         val = st.text_input(lbl, value=prev, key=f"{base}_ti")
-        st.session_state[base] = val
+        ss[base] = val
         return val
 
         # ---- 입력 영역(페이지별 레이아웃) ----
