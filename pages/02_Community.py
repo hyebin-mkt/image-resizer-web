@@ -1,10 +1,10 @@
-# pages/Feedback.py
+# pages/Community.py
 import datetime
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Feedback", page_icon="💬", layout="centered")
-st.title("💬 Feedback")
+st.set_page_config(page_title="Community", page_icon="💬", layout="centered")
+st.title("💬 Community")
 st.caption("커뮤니티 형식의 댓글/대댓글 공간입니다. (GitHub Issues 기반)")
 
 # ----- sidebar identical style -----
