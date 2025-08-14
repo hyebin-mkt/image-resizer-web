@@ -17,6 +17,24 @@ if not TOKEN:
 PORTAL_ID = st.secrets.get("PORTAL_ID", "2495902")
 HUBSPOT_REGION = "na1"
 
+# --- GitHub (댓글/대댓글) ---
+GH_TOKEN = st.secrets.get("GH_TOKEN", "")
+GH_REPO  = st.secrets.get("GH_REPO", "")   # "owner/repo"
+
+def _gh_headers(token: str):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "streamlit-mbm-wizard",
+    }
+
+def create_issue_comment(repo_full: str, token: str, issue_number: int, body: str):
+    """대댓글(이슈 코멘트) 작성"""
+    url = f"https://api.github.com/repos/{repo_full}/issues/{issue_number}/comments"
+    return requests.post(url, headers=_gh_headers(token), json={"body": body}, timeout=30)
+
+
 # Website Page 템플릿(Website 전용)
 LANDING_PAGE_TEMPLATE_ID = st.secrets.get("LANDING_PAGE_TEMPLATE_ID", "194363146790")
 WEBSITE_PAGE_TEMPLATE_TITLE = st.secrets.get("WEBSITE_PAGE_TEMPLATE_TITLE", "[Template] Event Landing Page_GOM")
