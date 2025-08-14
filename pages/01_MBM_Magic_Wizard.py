@@ -618,7 +618,7 @@ section.main [data-testid="stForm"] { overflow: visible !important; }
 div[data-baseweb="select"] { z-index: 1000 !important; }
 
 /* 제출 버튼을 폼 너비에 맞추고 패딩 주기 */
-.mbm-wide-btn button { width: 100% !important; padding: 12px 0 !important; border-radius: 10px !important; }
+.mbm-wide-btn button { width: 100% !important; padding: 5px 0 !important; border-radius: 10px !important; }
 
 /* 네비 버튼: 테두리/배경 제거 */
 .mbm-nav-btn button {
@@ -652,7 +652,7 @@ div[data-baseweb="select"] { z-index: 1000 !important; }
 }
 
 /* 기존: 폭/패딩/곡률은 공통 클래스에서 그대로 사용 */
-.mbm-wide-btn button { width:100% !important; padding:5px 0 !important; border-radius:10px !important; }
+.mbm-wide-btn button { width:100% !important; padding:12px 0 !important; border-radius:10px !important; }
 </style>
 """, unsafe_allow_html=True)
 
