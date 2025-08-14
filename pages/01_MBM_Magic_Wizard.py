@@ -617,10 +617,10 @@ section.main [data-testid="stVerticalBlock"] > div { margin-bottom: 8px; }
 
 # =============== 탭①: MBM 오브젝트 제출 (페이지네비/검증/폴백) ===============
 with tabs[idx[TAB1]]:
-    st.markdown("### ① MBM 오브젝트 제출")
+    st.markdown("### ① MBM 타이틀 설정")
 
     # (A) 타이틀 설정
-    st.markdown("**MBM 오브젝트 타이틀 설정**")
+    ## st.markdown("**MBM 오브젝트 타이틀 설정**") << 삭제 
     st.markdown("네이밍 규칙: `[국가코드] YYYYMMDD 웨비나명` 형식으로 입력하세요.")
     c1, c2 = st.columns([6, 1])
     with c1:
@@ -656,10 +656,10 @@ with tabs[idx[TAB1]]:
     with cc: st.empty()
 
 
-# =============== (새) 탭①-B: 세부 항목 작성 ===============
+# =============== (새) 탭②: MBM 오브젝트 생성 ===============
 if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
     with tabs[idx[TAB1B]]:
-        st.markdown("### ①-B 세부 항목 작성")
+        st.markdown("### ② MBM 오브젝트 생성")
         st.caption("※ * 표시는 필수 항목입니다.")
 
         schema_failed = False
