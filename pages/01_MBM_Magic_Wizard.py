@@ -722,10 +722,17 @@ with tabs[idx[TAB1]]:
                     default_date = datetime.date.fromtimestamp(int(prev_ms) / 1000)
                 except Exception:
                     default_date = None
-            d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
+        
+            # 구버전 Streamlit 호환: format 인자 미지원 시 fallback
+            try:
+                d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
+            except TypeError:
+                d = st.date_input(lbl, value=default_date, key=f"{base}_date")
+        
             val = to_epoch_ms(d) if d else None
             ss[base] = val
             return val
+
     
         # 숫자
         if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
