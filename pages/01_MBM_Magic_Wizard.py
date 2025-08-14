@@ -594,7 +594,7 @@ with tabs[idx[TAB1]]:
 
     ca, cb, cc = st.columns([2,2,1])
     with ca:
-        if st.button("다음 ▶ 필드 입력 열기", use_container_width=True, type="primary", disabled=not ss.mbm_title):
+        if st.button("MBM 오브젝트 생성하기", use_container_width=True, type="primary", disabled=not ss.mbm_title):
             if not ss.mbm_title:
                 st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
             else:
@@ -603,7 +603,7 @@ with tabs[idx[TAB1]]:
                 ss.prop_step = 1
                 st.rerun()
     with cb:
-        if st.button("이미 생성했어요 ▶ 스킵", use_container_width=True):
+        if st.button("디자인 에셋 생성하기 (Skip)", use_container_width=True):
             if not ss.mbm_title:
                 st.error("타이틀을 입력해야 다음 단계로 이동할 수 있어요.")
             else:
