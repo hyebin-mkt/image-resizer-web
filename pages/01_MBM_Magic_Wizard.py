@@ -655,6 +655,7 @@ with tabs[idx[TAB1]]:
                 st.rerun()
     with cc: st.empty()
 
+
 # =============== (새) 탭①-B: 세부 항목 작성 ===============
 if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
     with tabs[idx[TAB1B]]:
@@ -819,7 +820,71 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                 cols = st.columns(2)
                 full_span_field = "product__midas_" if ss.prop_step == 2 else None
                 for i, fname in enumerate(current_fields):
-                   
+                    meta = props_map.get(fname, {})
+                    if fname == full_span_field:
+                        # MIDAS는 가로 전체 사용 + 멀티선택
+                        render_multi_dropdown(fname, meta)
+                    else:
+                        with cols[i % 2]:
+                            if fname == "title":
+                                continue
+                            render_field(fname, meta)
+
+            # 폼 컨테이너 닫기
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # 하단 도트 페이지네이션 + 이동 버튼
+        _render_step_dots(ss.prop_step, total_steps)
+        nav_left, nav_right = st.columns(2)
+        with nav_left:
+            if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
+                ss.prop_step -= 1
+                st.rerun()
+        with nav_right:
+            if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
+                ss.prop_step += 1
+                st.rerun()
+
+        # 제출 버튼(폼 너비와 동일)
+        st.markdown('<div class="mbm-wide-btn">', unsafe_allow_html=True)
+        if st.button("제출하기", type="primary", use_container_width=True, key="create_mbm"):
+            payload = {"title": ss.mbm_title}
+            missing = []
+
+            def get_val_for(name: str):
+                if name in MULTI_CHECK_FIELDS:
+                    return ";".join(ss.get(f"mchk_{name}", [])) or None
+                return ss.get(f"fld_{name}")
+
+            for n in MBM_FIELDS:
+                if n == "title":
+                    continue
+                v = get_val_for(n)
+                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                    missing.append(n)
+                elif v not in (None, ""):
+                    payload[n] = v
+
+            if missing:
+                st.error("모든 필수 항목을 작성해주세요")
+            else:
+                payload["auto_generate_campaign"] = "true"
+                try:
+                    with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
+                        created = hs_create_mbm_object(payload)
+                        ss.mbm_object = created
+                        ss.mbm_submitted = True
+                        ss.active_stage = 2
+                        # 슬러그용 메타
+                        ss.slug_country = payload.get("country")
+                        ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
+                        st.success("생성 완료! ‘마케팅 에셋 선택’ 탭으로 이동합니다.")
+                        st.rerun()
+                except requests.HTTPError as http_err:
+                    st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+                except Exception as e:
+                    st.error(f"실패: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)                   
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
