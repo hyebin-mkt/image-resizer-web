@@ -632,6 +632,27 @@ div[data-baseweb="select"] { z-index: 1000 !important; }
 
 /* 도트/버튼 한 줄 중앙 정렬 여백 */
 .mbm-nav-row { margin-top: 6px; }             
+
+/* 제출 버튼 상태 */
+.mbm-submit-outlined button {
+  border: 2px solid #ef4444 !important;
+  background: #fff !important;
+  color: #ef4444 !important;
+}
+.mbm-submit-outlined button:hover { background: #fff !important; }
+.mbm-submit-outlined button:disabled {
+  opacity: 1 !important;              /* 비활성도 테두리 그대로 보이도록 */
+  cursor: not-allowed !important;
+}
+
+.mbm-submit-filled button {
+  background: #ef4444 !important;
+  border: 1px solid #ef4444 !important;
+  color: #fff !important;
+}
+
+/* 기존: 폭/패딩/곡률은 공통 클래스에서 그대로 사용 */
+.mbm-wide-btn button { width:100% !important; padding:12px 0 !important; border-radius:10px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -851,6 +872,68 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                                 continue
                             render_field(fname, meta)
 
+            # --- 제출 버튼(폼 최하단): 모든 필수값 충족 시에만 채워진 버튼 ---
+            # 제출 활성 조건 계산
+            def _get_val_for(n: str):
+                if n in MULTI_CHECK_FIELDS:
+                    return ";".join(ss.get(f"mchk_{n}", [])) or None
+                return ss.get(f"fld_{n}")
+
+            missing_now = []
+            for n in MBM_FIELDS:
+                if n == "title":     # 타이틀은 탭1에서 이미 입력
+                    continue
+                v = _get_val_for(n)
+                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                    missing_now.append(n)
+
+            all_required_ok = (len(missing_now) == 0)
+
+            # 상태별 스타일 래퍼 클래스 선택
+            wrapper_cls = "mbm-submit-filled" if all_required_ok else "mbm-submit-outlined"
+            st.markdown(f'<div class="mbm-wide-btn {wrapper_cls}">', unsafe_allow_html=True)
+
+            clicked = st.button(
+                "제출하기",
+                type=("primary" if all_required_ok else "secondary"),
+                use_container_width=True,
+                key="create_mbm",
+                disabled=not all_required_ok   # 조건 만족 전에는 비활성(테두리만 보임)
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if clicked:
+                payload = {"title": ss.mbm_title}
+                missing = []
+
+                for n in MBM_FIELDS:
+                    if n == "title":
+                        continue
+                    v = _get_val_for(n)
+                    if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                        missing.append(n)
+                    elif v not in (None, ""):
+                        payload[n] = v
+
+                if missing:
+                    st.error("모든 필수 항목을 작성해주세요")
+                else:
+                    payload["auto_generate_campaign"] = "true"
+                    try:
+                        with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
+                            created = hs_create_mbm_object(payload)
+                            ss.mbm_object = created
+                            ss.mbm_submitted = True
+                            ss.active_stage = 2
+                            ss.slug_country = payload.get("country")
+                            ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
+                            st.success("생성 완료! ‘마케팅 에셋 선택’ 탭으로 이동합니다.")
+                            st.rerun()
+                    except requests.HTTPError as http_err:
+                        st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+                    except Exception as e:
+                        st.error(f"실패: {e}")
+
             # 폼 컨테이너 닫기
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -875,48 +958,7 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                 ss.prop_step += 1
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-                                                                        
-        
-        # 제출 버튼(폼 너비와 동일)
-        st.markdown('<div class="mbm-wide-btn">', unsafe_allow_html=True)
-        if st.button("제출하기", type="primary", use_container_width=True, key="create_mbm"):
-            payload = {"title": ss.mbm_title}
-            missing = []
-
-            def get_val_for(name: str):
-                if name in MULTI_CHECK_FIELDS:
-                    return ";".join(ss.get(f"mchk_{name}", [])) or None
-                return ss.get(f"fld_{name}")
-
-            for n in MBM_FIELDS:
-                if n == "title":
-                    continue
-                v = get_val_for(n)
-                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
-                    missing.append(n)
-                elif v not in (None, ""):
-                    payload[n] = v
-
-            if missing:
-                st.error("모든 필수 항목을 작성해주세요")
-            else:
-                payload["auto_generate_campaign"] = "true"
-                try:
-                    with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
-                        created = hs_create_mbm_object(payload)
-                        ss.mbm_object = created
-                        ss.mbm_submitted = True
-                        ss.active_stage = 2
-                        # 슬러그용 메타
-                        ss.slug_country = payload.get("country")
-                        ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
-                        st.success("생성 완료! ‘마케팅 에셋 선택’ 탭으로 이동합니다.")
-                        st.rerun()
-                except requests.HTTPError as http_err:
-                    st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
-                except Exception as e:
-                    st.error(f"실패: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)                   
+                                                                                          
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
