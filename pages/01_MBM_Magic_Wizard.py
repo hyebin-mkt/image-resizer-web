@@ -64,12 +64,13 @@ MBM_FIELDS = [
     "title",
     "country",
     "mbm_type",
-    "city",  # 유일한 선택 항목(옵션)
+    "city",
     "location",
     "mbm_start_date",
     "mbm_finish_date",
-    "target_type_of_customer",  # ← 변경: 타겟 고객유형(허브스팟 실제 이름)
     "expected_earnings",
+    "target_audience",          # ★ 추가: 목표 집객수(Number)
+    "target_type_of_customer",  # 멀티 체크
     "product__midas_",          # 멀티 체크
     "campaign_key_item",
     "market_conditions",
@@ -100,8 +101,9 @@ LABEL_OVERRIDES = {
     "location": "위치 (세미나 장소 또는 온라인 플랫폼명) *",
     "mbm_start_date": "시작일 *",
     "mbm_finish_date": "종료일 *",
-    "target_type_of_customer": "타겟 고객유형 *",   # ← 추가/변경
     "expected_earnings": "예상 기대매출 (달러 기준) *",
+    "target_audience": "목표 집객수",             # ★ 추가
+    "target_type_of_customer": "타겟 고객유형 *",
     "product__midas_": "판매 타겟 제품 (MIDAS) *",
     "campaign_key_item": "캠페인 키 아이템 (제품/서비스/옵션 출시, 업데이트 항목 등) *",
     "market_conditions": "시장 상황 *",
@@ -607,11 +609,19 @@ st.markdown("""
 /* 입력 위젯 사이 여백 */
 section.main [data-testid="stVerticalBlock"] > div { margin-bottom: 8px; }
 
-/* 폼 컨테이너 패딩 */
-.mbm-form-box { padding: 14px 16px; }
+/* 폼 컨테이너 패딩 + 드롭다운이 가려지지 않도록 overflow 해제 */
+.mbm-form-box { padding: 14px 16px; overflow: visible !important; }
+section.main [data-testid="stVerticalBlock"],
+section.main [data-testid="stForm"] { overflow: visible !important; }
+
+/* BaseWeb Select 계열 팝오버가 위로 올라오도록 */
+div[data-baseweb="select"] { z-index: 1000 !important; }
 
 /* 제출 버튼을 폼 너비에 맞추고 패딩 주기 */
 .mbm-wide-btn button { width: 100% !important; padding: 12px 0 !important; border-radius: 10px !important; }
+
+/* 네비 아이콘 버튼 크기 조절 */
+.mbm-nav-btn button { padding: 4px 10px !important; border-radius: 8px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -703,9 +713,10 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
         # ── 정상: 스키마 기반 입력 폼 ─────────────────────
         PAGES = [
             ["country", "mbm_type", "city", "location"],
-            ["mbm_start_date", "mbm_finish_date", "target_type_of_customer", "expected_earnings", "product__midas_"],
-            ["campaign_key_item", "market_conditions", "pain_point_of_target", "benefits",
-             "description_of_detailed_targets___________", "purpose_of_mbm"],
+            # 날짜 2개 → 금액/집객수 2개 → 타겟고객(풀폭) → 제품(풀폭)
+            ["mbm_start_date", "mbm_finish_date", "expected_earnings", "target_audience", "target_type_of_customer", "product__midas_"],
+            ["purpose_of_mbm", "campaign_key_item", "market_conditions", "pain_point_of_target", "benefits",
+             "description_of_detailed_targets___________"],
         ]
         total_steps = len(PAGES)
         ss.prop_step = max(1, min(ss.prop_step, total_steps))
@@ -786,7 +797,7 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                 st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
                 return val
 
-            if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+            if name in ("expected_earnings", "target_audience") or ptype in ("number", "integer", "long", "double"):
                 prev = float(ss.get(base, 0) or 0)
                 v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
                 ss[base] = str(int(v))
@@ -834,17 +845,25 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
             st.markdown('</div>', unsafe_allow_html=True)
 
         # 하단 도트 페이지네이션 + 이동 버튼
-        _render_step_dots(ss.prop_step, total_steps)
-        nav_left, nav_right = st.columns(2)
+        nav_left, nav_center, nav_right = st.columns([1, 6, 1])
         with nav_left:
-            if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
+            st.markdown('<div class="mbm-nav-btn">', unsafe_allow_html=True)
+            if st.button("＜", use_container_width=True, key="nav_prev", disabled=ss.prop_step <= 1):
                 ss.prop_step -= 1
                 st.rerun()
-        with nav_right:
-            if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with nav_center:
+            _render_step_dots(ss.prop_step, total_steps)
+            if st.button("＞", use_container_width=True, key="nav_next", disabled=ss.prop_step >= total_steps):
                 ss.prop_step += 1
                 st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with nav_right:
+            st.markdown('<div class="mbm-nav-btn">', unsafe_allow_html=True)
 
+        
         # 제출 버튼(폼 너비와 동일)
         st.markdown('<div class="mbm-wide-btn">', unsafe_allow_html=True)
         if st.button("제출하기", type="primary", use_container_width=True, key="create_mbm"):
