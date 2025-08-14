@@ -514,9 +514,10 @@ def clone_site_page_resilient(template_id: str, clone_name: str) -> dict:
 
 
 # =============== 탭 구성 ===============
-TAB1 = "MBM 타이틀 작성"
-TAB2 = "후속 작업 선택"
-TAB3 = "최종 링크 공유"
+TAB1  = "타이틀 작성"
+TAB1B = "오브젝트 생성"   # ★ 새 탭
+TAB2  = "마케팅 에셋 선택"
+TAB3  = "최종 링크 공유"
 
 def _focus_tab(label: str):
     import json as _json
@@ -560,18 +561,59 @@ def _focus_tab(label: str):
 
 def make_tabs():
     labels = [TAB1]
-    if ss.mbm_submitted: labels.append(TAB2)
-    if ss.results: labels.append(TAB3)
+    # 세부항목을 새 탭으로
+    if st.session_state.get("show_prop_form") and not st.session_state.get("mbm_submitted"):
+        labels.append(TAB1B)
+    if st.session_state.get("mbm_submitted"):
+        labels.append(TAB2)
+    if st.session_state.get("results"):
+        labels.append(TAB3)
+
     try:
         t = st.tabs(labels, key="mbm_tabs")
     except TypeError:
         t = st.tabs(labels)
+
     idx = {label: i for i, label in enumerate(labels)}
-    if ss.active_stage == 2 and TAB2 in idx: _focus_tab(TAB2)
-    elif ss.active_stage == 3 and TAB3 in idx: _focus_tab(TAB3)
+
+    # 자동 포커스
+    if st.session_state.get("show_prop_form") and not st.session_state.get("mbm_submitted") and TAB1B in idx:
+        _focus_tab(TAB1B)
+    elif st.session_state.get("active_stage") == 2 and TAB2 in idx:
+        _focus_tab(TAB2)
+    elif st.session_state.get("active_stage") == 3 and TAB3 in idx:
+        _focus_tab(TAB3)
+
     return t, idx
 
 tabs, idx = make_tabs()
+
+# (도트 페이지네이션) 공용 유틸
+def _render_step_dots(current: int, total: int):
+    current = int(current); total = int(total)
+    dots = []
+    for i in range(1, total+1):
+        color = "#111827" if i == current else "#d1d5db"
+        size  = "10px"    if i == current else "8px"
+        dots.append(f'<span style="display:inline-block;width:{size};height:{size};border-radius:50%;background:{color};"></span>')
+    st.markdown(
+        f'<div style="display:flex;gap:8px;justify-content:center;align-items:center;margin:8px 0 4px;">{"".join(dots)}</div>',
+        unsafe_allow_html=True
+    )
+
+# (간격/버튼 스타일) 전역 스타일
+st.markdown("""
+<style>
+/* 입력 위젯 사이 여백 */
+section.main [data-testid="stVerticalBlock"] > div { margin-bottom: 8px; }
+
+/* 폼 컨테이너 패딩 */
+.mbm-form-box { padding: 14px 16px; }
+
+/* 제출 버튼을 폼 너비에 맞추고 패딩 주기 */
+.mbm-wide-btn button { width: 100% !important; padding: 12px 0 !important; border-radius: 10px !important; }
+</style>
+""", unsafe_allow_html=True)
 
 # =============== 탭①: MBM 오브젝트 제출 (페이지네비/검증/폴백) ===============
 with tabs[idx[TAB1]]:
@@ -612,50 +654,6 @@ with tabs[idx[TAB1]]:
                 st.success("MBM 오브젝트 생성 단계를 건너뜁니다. ‘후속 작업 선택’ 탭으로 이동합니다.")
                 st.rerun()
     with cc: st.empty()
-
-    # (B) 상세 속성 폼 (스키마 시도 → 실패시 폴백 iFrame)
-    if ss.show_prop_form and not ss.mbm_submitted:
-        st.markdown("---")
-        st.markdown("#### MBM 오브젝트 세부 항목")
-        st.caption("※ * 표시는 필수 항목입니다.")
-
-        schema_failed = False
-        try:
-            props_map = get_mbm_properties_map()
-        except Exception:
-            schema_failed = True
-
-        if schema_failed:
-            st.warning(
-                "스키마 조회 권한이 없어 기본 폼 대신 임시 HubSpot 폼을 표시합니다. "
-                "제출 후 아래 버튼으로 다음 단계로 이동하세요. (관리자에게 **crm.schemas.read** 권한 추가 요청 권장)"
-            )
-            html = f"""
-            <div id="hubspot-form"></div>
-            <script>
-            (function(){{
-              var s=document.createElement('script');
-              s.src="https://js.hsforms.net/forms/v2.js"; s.async=true;
-              s.onload=function(){{
-                if(!window.hbspt) return;
-                window.hbspt.forms.create({{
-                  region:"{HUBSPOT_REGION}",
-                  portalId:"{PORTAL_ID}",
-                  formId:"{FALLBACK_FORM_ID}",
-                  target:"#hubspot-form",
-                  inlineMessage:"제출 완료! 아래 버튼으로 다음 단계로 이동하세요."
-                }});
-              }};
-              document.body.appendChild(s);
-            }})();
-            </script>
-            """
-            st.components.v1.html(html, height=1200, scrolling=False)
-            if st.button("임시 폼 제출 완료 → ‘후속 작업 선택’ 이동", type="primary"):
-                ss.mbm_submitted = True
-                ss.active_stage = 2
-                st.rerun()
-            st.stop()
 
         # ── 정상: 스키마 기반 입력 폼 (페이지네비게이션) ─────────────────────
         PAGES = [
@@ -857,7 +855,171 @@ with tabs[idx[TAB1]]:
                     except Exception as e:
                         st.error(f"실패: {e}")
 
+# =============== (새) 탭①-B: 세부 항목 작성 ===============
+if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
+    with tabs[idx[TAB1B]]:
+        st.markdown("### ①-B 세부 항목 작성")
+        st.caption("※ * 표시는 필수 항목입니다.")
 
+        schema_failed = False
+        try:
+            props_map = get_mbm_properties_map()
+        except Exception:
+            schema_failed = True
+
+        if schema_failed:
+            st.warning(
+                "스키마 조회 권한이 없어 기본 폼 대신 임시 HubSpot 폼을 표시합니다. "
+                "제출 후 아래 버튼으로 다음 단계로 이동하세요. (관리자에게 **crm.schemas.read** 권한 추가 요청 권장)"
+            )
+            html = f"""
+            <div id="hubspot-form"></div>
+            <script>
+            (function(){{
+              var s=document.createElement('script');
+              s.src="https://js.hsforms.net/forms/v2.js"; s.async=true;
+              s.onload=function(){{
+                if(!window.hbspt) return;
+                window.hbspt.forms.create({{
+                  region:"{HUBSPOT_REGION}",
+                  portalId:"{PORTAL_ID}",
+                  formId:"{FALLBACK_FORM_ID}",
+                  target:"#hubspot-form",
+                  inlineMessage:"제출 완료! 아래 버튼으로 다음 단계로 이동하세요."
+                }});
+              }};
+              document.body.appendChild(s);
+            }})();
+            </script>
+            """
+            st.components.v1.html(html, height=1200, scrolling=False)
+            if st.button("임시 폼 제출 완료 → ‘후속 작업 선택’ 이동", type="primary"):
+                ss.mbm_submitted = True
+                ss.active_stage = 2
+                st.rerun()
+            st.stop()
+
+        # ── 정상: 스키마 기반 입력 폼 ─────────────────────
+        PAGES = [
+            ["country", "mbm_type", "city", "location"],
+            ["mbm_start_date", "mbm_finish_date", "target_type_of_customer", "expected_earnings", "product__midas_"],
+            ["campaign_key_item", "market_conditions", "pain_point_of_target", "benefits",
+             "description_of_detailed_targets___________", "purpose_of_mbm"],
+        ]
+        total_steps = len(PAGES)
+        ss.prop_step = max(1, min(ss.prop_step, total_steps))
+
+        # --- 위젯 렌더러들 ---
+        def _get_options(meta: dict, name: str):
+            ptype = (meta.get("type") or "").lower()
+            opts = meta.get("options") or []
+            if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
+                if name in DEFAULT_ENUM_OPTIONS:
+                    return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
+            return opts
+
+        def render_multi_dropdown(name: str, meta: dict):
+            opts = _get_options(meta, name)
+            labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
+            values = [o.get("value") for o in opts]
+            sel_key = f"mchk_{name}"
+            base = f"fld_{name}"
+
+            selected_vals = set(ss.get(sel_key) or [])
+            items = list(range(len(labels)))
+            default_items = [i for i, v in enumerate(values) if v in selected_vals]
+            chosen_idx = st.multiselect(
+                LABEL_OVERRIDES.get(name, human_label(name)),
+                options=items,
+                default=default_items,
+                format_func=lambda i: labels[i],
+                key=f"{base}_ms"
+            )
+            chosen_vals = [values[i] for i in chosen_idx]
+            ss[sel_key] = chosen_vals
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)  # 여백
+            return ";".join(chosen_vals)
+
+        def render_field(name: str, meta: dict):
+            lbl = LABEL_OVERRIDES.get(name, human_label(name))
+            ptype = (meta.get("type") or "").lower()
+            options = _get_options(meta, name)
+            base = f"fld_{name}"
+
+            if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
+                return render_multi_dropdown(name, meta)
+
+            if ptype in ("enumeration", "enum", "enumerationoptions"):
+                labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
+                values = [opt.get("value") for opt in options]
+                if labels:
+                    cur_val = ss.get(base)
+                    default_index = values.index(cur_val) if cur_val in values else 0
+                    idx_opt = st.selectbox(
+                        lbl,
+                        options=list(range(len(labels))),
+                        index=default_index,
+                        format_func=lambda i: labels[i],
+                        key=f"{base}_idx",
+                    )
+                    ss[base] = values[idx_opt]
+                else:
+                    ss[base] = st.text_input(lbl, value=ss.get(base, ""), key=f"{base}_ti")
+                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                return ss[base]
+
+            if ptype in ("date", "datetime"):
+                prev_ms = ss.get(base)
+                default_date = None
+                if prev_ms:
+                    try:
+                        default_date = datetime.date.fromtimestamp(int(prev_ms) / 1000)
+                    except Exception:
+                        default_date = None
+                try:
+                    d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
+                except TypeError:
+                    d = st.date_input(lbl, value=default_date, key=f"{base}_date")
+                val = to_epoch_ms(d) if d else None
+                ss[base] = val
+                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                return val
+
+            if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+                prev = float(ss.get(base, 0) or 0)
+                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
+                ss[base] = str(int(v))
+                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                return ss[base]
+
+            if name in LONG_TEXT_FIELDS:
+                prev = ss.get(base, "")
+                val = st.text_area(lbl, height=110, value=prev, key=f"{base}_txt")
+                ss[base] = val
+                st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                return val
+
+            prev = ss.get(base, "")
+            val = st.text_input(lbl, value=prev, key=f"{base}_ti")
+            ss[base] = val
+            st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+            return val
+
+        # ---- 입력 영역(페이지별 레이아웃) ----
+        form_box = st.container(border=True)
+        with form_box:
+            st.markdown('<div class="mbm-form-box">', unsafe_allow_html=True)
+
+            current_fields = PAGES[ss.prop_step - 1]
+            if ss.prop_step == 3:
+                for fname in current_fields:
+                    meta = props_map.get(fname, {})
+                    render_field(fname, meta)
+            else:
+                cols = st.columns(2)
+                full_span_field = "product__midas_" if ss.prop_step == 2 else None
+                for i, fname in enumerate(current_fields):
+                   
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
