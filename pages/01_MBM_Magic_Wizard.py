@@ -647,7 +647,7 @@ with tabs[idx[TAB1]]:
                 st.rerun()
             st.stop()
 
-        # ── 정상: 스키마 기반 입력 폼 (페이지네이션) ─────────────────────
+        # ── 정상: 스키마 기반 입력 폼 (페이지네비게이션) ─────────────────────
         PAGES = [
             ["country", "mbm_type", "city", "location"],
             ["mbm_start_date", "mbm_finish_date", "target_audience", "expected_earnings", "product__midas_"],
@@ -657,185 +657,189 @@ with tabs[idx[TAB1]]:
         total_steps = len(PAGES)
         ss.prop_step = max(1, min(ss.prop_step, total_steps))
 
-        # --- 위젯 렌더러들 (전부 4칸 스페이스 들여쓰기로 통일) ---
-    def _get_options(meta: dict, name: str):
-        ptype = (meta.get("type") or "").lower()
-        opts = meta.get("options") or []
-        # 열거형 타입일 때만 기본 옵션 폴백 적용
-        if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
-            if name in DEFAULT_ENUM_OPTIONS:
-                return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
-        return opts
-    
-    def render_multi_check(name: str, meta: dict):
-        opts = _get_options(meta, name)
-        labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
-        values = [o.get("value") for o in opts]
-        sel_key = f"mchk_{name}"
-        selected = set(ss.get(sel_key) or [])
-        cols = st.columns(2)
-        for i, (lab, val) in enumerate(zip(labels, values)):
-            with cols[i % 2]:
-                checked = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
-            if checked:
-                selected.add(val)
-            else:
-                selected.discard(val)
-        ss[sel_key] = list(selected)
-        return ";".join(ss[sel_key])
-    
-    def render_field(name: str, meta: dict):
-        lbl = LABEL_OVERRIDES.get(name, human_label(name))
-        ptype = (meta.get("type") or "").lower()
-        options = _get_options(meta, name)
-        base = f"fld_{name}"
-    
-        # 멀티체크는 열거형 타입일 때만
-        if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
-            st.markdown(lbl)
-            return render_multi_check(name, meta)
-    
-        # 단일 선택(드롭다운): 열거형 타입일 때만
-        if ptype in ("enumeration", "enum", "enumerationoptions"):
-            labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
-            values = [opt.get("value") for opt in options]
-            if labels:
-                cur_val = ss.get(base)
-                default_index = values.index(cur_val) if cur_val in values else 0
-                idx_opt = st.selectbox(lbl, options=list(range(len(labels))),
-                                       index=default_index,
-                                       format_func=lambda i: labels[i],
-                                       key=f"{base}_idx")
-                ss[base] = values[idx_opt]
-                return ss[base]
-            # 옵션이 비어있으면 텍스트 입력으로 폴백
-            val = st.text_input(lbl, value=ss.get(base, ""), key=f"{base}_ti")
-            ss[base] = val
-            return val
-    
-        # 날짜
-        if ptype in ("date", "datetime"):
-            prev_ms = ss.get(base)
-            default_date = None
-            if prev_ms:
-                try:
-                    default_date = datetime.date.fromtimestamp(int(prev_ms) / 1000)
-                except Exception:
-                    default_date = None
-        
-            # 구버전 Streamlit 호환: format 인자 미지원 시 fallback
-            try:
-                d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
-            except TypeError:
-                d = st.date_input(lbl, value=default_date, key=f"{base}_date")
-        
-            val = to_epoch_ms(d) if d else None
-            ss[base] = val
-            return val
+        # --- 위젯 렌더러들 (이 블럭 전체가 if ss.show_prop_form ... 안쪽 8칸 들여쓰기) ---
+        def _get_options(meta: dict, name: str):
+            ptype = (meta.get("type") or "").lower()
+            opts = meta.get("options") or []
+            # 열거형 타입일 때만 기본 옵션 폴백 적용
+            if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
+                if name in DEFAULT_ENUM_OPTIONS:
+                    return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
+            return opts
 
-    
-        # 숫자
-        if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
-            prev = float(ss.get(base, 0) or 0)
-            v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
-            ss[base] = str(int(v))
-            return ss[base]
-    
-        # 긴 텍스트
-        if name in LONG_TEXT_FIELDS:
-            prev = ss.get(base, "")
-            val = st.text_area(lbl, height=100, value=prev, key=f"{base}_txt")
-            ss[base] = val
-            return val
-    
-        # 일반 텍스트
-        prev = ss.get(base, "")
-        val = st.text_input(lbl, value=prev, key=f"{base}_ti")
-        ss[base] = val
-        return val
-
-    # ---- 입력 영역(페이지별 레이아웃) ----
-    form_box = st.container(border=True)
-
-    with form_box:
-        current_fields = PAGES[ss.prop_step-1]
-
-        if ss.prop_step == 3:
-            # 페이지 3은 1열
-            for fname in current_fields:
-                meta = props_map.get(fname, {})
-                render_field(fname, meta)
-        else:
+        def render_multi_check(name: str, meta: dict):
+            opts = _get_options(meta, name)
+            labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
+            values = [o.get("value") for o in opts]
+            sel_key = f"mchk_{name}"
+            selected = set(ss.get(sel_key) or [])
             cols = st.columns(2)
-            full_span_field = "product__midas_" if ss.prop_step == 2 else None
-            for i, fname in enumerate(current_fields):
-                meta = props_map.get(fname, {})
-                if fname == full_span_field:
-                    st.markdown(LABEL_OVERRIDES.get(fname, fname))
-                    render_multi_check(fname, meta)
+            for i, (lab, val) in enumerate(zip(labels, values)):
+                with cols[i % 2]:
+                    checked = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
+                if checked:
+                    selected.add(val)
                 else:
-                    with cols[i % 2]:
-                        if fname == "title": 
-                            continue
-                        render_field(fname, meta)
+                    selected.discard(val)
+            ss[sel_key] = list(selected)
+            return ";".join(ss[sel_key])
 
-    # ---- 페이지 네비게이션(아래 배치) ----
-    nav = st.container()
-    with nav:
-        col_prev, col_ctr, col_next = st.columns([1,1,1])
-        with col_prev:
-            if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
-                ss.prop_step -= 1; st.rerun()
-        with col_ctr:
-            st.markdown(
-                f"<div style='text-align:center;'>페이지 {ss.prop_step} / {total_steps}</div>",
-                unsafe_allow_html=True
-            )
-        with col_next:
-            if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
-                ss.prop_step += 1; st.rerun()
+        def render_field(name: str, meta: dict):
+            lbl = LABEL_OVERRIDES.get(name, human_label(name))
+            ptype = (meta.get("type") or "").lower()
+            options = _get_options(meta, name)
+            base = f"fld_{name}"
 
-    # ---- (버튼: 중앙 100% 폭) ----
-    gap_l, main, gap_r = st.columns([1, 10, 1])
-    with main:
-        if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
-            payload = {"title": ss.mbm_title}
-            missing = []
+            # 멀티체크는 열거형 타입일 때만
+            if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
+                st.markdown(lbl)
+                return render_multi_check(name, meta)
 
-            def get_val_for(name: str):
-                if name in MULTI_CHECK_FIELDS:
-                    return ";".join(ss.get(f"mchk_{name}", [])) or None
-                # 다양한 위젯키 중 세션에 저장해둔 내부 키 우선
-                return ss.get(f"fld_{name}")
+            # 단일 선택(드롭다운): 열거형 타입일 때만
+            if ptype in ("enumeration", "enum", "enumerationoptions"):
+                labels = [opt.get("label") or opt.get("display") or opt.get("value") for opt in options]
+                values = [opt.get("value") for opt in options]
+                if labels:
+                    cur_val = ss.get(base)
+                    default_index = values.index(cur_val) if cur_val in values else 0
+                    idx_opt = st.selectbox(
+                        lbl,
+                        options=list(range(len(labels))),
+                        index=default_index,
+                        format_func=lambda i: labels[i],
+                        key=f"{base}_idx",
+                    )
+                    ss[base] = values[idx_opt]
+                    return ss[base]
+                # 옵션이 비어있으면 텍스트 입력으로 폴백
+                val = st.text_input(lbl, value=ss.get(base, ""), key=f"{base}_ti")
+                ss[base] = val
+                return val
 
-            for n in MBM_FIELDS:
-                if n == "title": 
-                    continue
-                v = get_val_for(n)
-                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
-                    missing.append(n)
-                elif v not in (None, ""):
-                    payload[n] = v
+            # 날짜
+            if ptype in ("date", "datetime"):
+                prev_ms = ss.get(base)
+                default_date = None
+                if prev_ms:
+                    try:
+                        default_date = datetime.date.fromtimestamp(int(prev_ms) / 1000)
+                    except Exception:
+                        default_date = None
 
-            if missing:
-                st.error("모든 필수 항목을 작성해주세요")
-            else:
-                payload["auto_generate_campaign"] = "true"
+                # 구버전 Streamlit 호환: format 인자 미지원 시 fallback
                 try:
-                    with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
-                        created = hs_create_mbm_object(payload)
-                        ss.mbm_object = created
-                        ss.mbm_submitted = True
-                        ss.active_stage = 2
-                        # 슬러그용 메타 저장
-                        ss.slug_country = payload.get("country")
-                        ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
-                        st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
-                        st.rerun()
-                except requests.HTTPError as http_err:
-                    st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
-                except Exception as e:
-                    st.error(f"실패: {e}")
+                    d = st.date_input(lbl, value=default_date, format="YYYY-MM-DD", key=f"{base}_date")
+                except TypeError:
+                    d = st.date_input(lbl, value=default_date, key=f"{base}_date")
+
+                val = to_epoch_ms(d) if d else None
+                ss[base] = val
+                return val
+
+            # 숫자
+            if name == "expected_earnings" or ptype in ("number", "integer", "long", "double"):
+                prev = float(ss.get(base, 0) or 0)
+                v = st.number_input(lbl, min_value=0.0, step=1.0, format="%.0f", value=prev, key=f"{base}_num")
+                ss[base] = str(int(v))
+                return ss[base]
+
+            # 긴 텍스트
+            if name in LONG_TEXT_FIELDS:
+                prev = ss.get(base, "")
+                val = st.text_area(lbl, height=100, value=prev, key=f"{base}_txt")
+                ss[base] = val
+                return val
+
+            # 일반 텍스트
+            prev = ss.get(base, "")
+            val = st.text_input(lbl, value=prev, key=f"{base}_ti")
+            ss[base] = val
+            return val
+
+        # ---- 입력 영역(페이지별 레이아웃) ----
+        form_box = st.container(border=True)
+        with form_box:
+            current_fields = PAGES[ss.prop_step - 1]
+
+            if ss.prop_step == 3:
+                # 페이지 3은 1열
+                for fname in current_fields:
+                    meta = props_map.get(fname, {})
+                    render_field(fname, meta)
+            else:
+                cols = st.columns(2)
+                full_span_field = "product__midas_" if ss.prop_step == 2 else None
+                for i, fname in enumerate(current_fields):
+                    meta = props_map.get(fname, {})
+                    if fname == full_span_field:
+                        st.markdown(LABEL_OVERRIDES.get(fname, fname))
+                        render_multi_check(fname, meta)
+                    else:
+                        with cols[i % 2]:
+                            if fname == "title":
+                                continue
+                            render_field(fname, meta)
+
+        # ---- 페이지 네비게이션(아래 배치) ----
+        nav = st.container()
+        with nav:
+            col_prev, col_ctr, col_next = st.columns([1, 1, 1])
+            with col_prev:
+                if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
+                    ss.prop_step -= 1
+                    st.rerun()
+            with col_ctr:
+                st.markdown(
+                    f"<div style='text-align:center;'>페이지 {ss.prop_step} / {total_steps}</div>",
+                    unsafe_allow_html=True,
+                )
+            with col_next:
+                if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
+                    ss.prop_step += 1
+                    st.rerun()
+
+        # ---- (버튼: 중앙 100% 폭) ----
+        gap_l, main, gap_r = st.columns([1, 10, 1])
+        with main:
+            if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
+                payload = {"title": ss.mbm_title}
+                missing = []
+
+                def get_val_for(name: str):
+                    if name in MULTI_CHECK_FIELDS:
+                        return ";".join(ss.get(f"mchk_{name}", [])) or None
+                    # 다양한 위젯키 중 세션에 저장해둔 내부 키 우선
+                    return ss.get(f"fld_{name}")
+
+                for n in MBM_FIELDS:
+                    if n == "title":
+                        continue
+                    v = get_val_for(n)
+                    if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                        missing.append(n)
+                    elif v not in (None, ""):
+                        payload[n] = v
+
+                if missing:
+                    st.error("모든 필수 항목을 작성해주세요")
+                else:
+                    payload["auto_generate_campaign"] = "true"
+                    try:
+                        with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
+                            created = hs_create_mbm_object(payload)
+                            ss.mbm_object = created
+                            ss.mbm_submitted = True
+                            ss.active_stage = 2
+                            # 슬러그용 메타 저장
+                            ss.slug_country = payload.get("country")
+                            ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
+                            st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
+                            st.rerun()
+                    except requests.HTTPError as http_err:
+                        st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+                    except Exception as e:
+                        st.error(f"실패: {e}")
+
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
