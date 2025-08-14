@@ -68,9 +68,9 @@ MBM_FIELDS = [
     "location",
     "mbm_start_date",
     "mbm_finish_date",
-    "target_audience",   # 멀티 체크
+    "target_type_of_customer",  # ← 변경: 타겟 고객유형(허브스팟 실제 이름)
     "expected_earnings",
-    "product__midas_",   # 멀티 체크
+    "product__midas_",          # 멀티 체크
     "campaign_key_item",
     "market_conditions",
     "pain_point_of_target",
@@ -100,7 +100,7 @@ LABEL_OVERRIDES = {
     "location": "위치 (세미나 장소 또는 온라인 플랫폼명) *",
     "mbm_start_date": "시작일 *",
     "mbm_finish_date": "종료일 *",
-    "target_audience": "타겟 고객 유형 *",
+    "target_type_of_customer": "타겟 고객유형 *",   # ← 추가/변경
     "expected_earnings": "예상 기대매출 (달러 기준) *",
     "product__midas_": "판매 타겟 제품 (MIDAS) *",
     "campaign_key_item": "캠페인 키 아이템 (제품/서비스/옵션 출시, 업데이트 항목 등) *",
@@ -111,21 +111,30 @@ LABEL_OVERRIDES = {
     "purpose_of_mbm": "목적 *",
 }
 
-# 멀티 체크 필드
-MULTI_CHECK_FIELDS = {"target_audience", "product__midas_"}
+# 멀티 체크 필드(두 항목 모두 다중선택 드롭다운으로 표시)
+MULTI_CHECK_FIELDS = {"target_type_of_customer", "product__midas_"}
+
 def _get_options(meta: dict, name: str):
     ptype = (meta.get("type") or "").lower()
     opts = meta.get("options") or []
-
     # ★ 하드코딩 기본 옵션은 진짜 '열거형'일 때만 사용
     if not opts and ptype in ("enumeration", "enum", "enumerationoptions"):
         if name in DEFAULT_ENUM_OPTIONS:
             return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
-
     return opts
 
 # 스키마 옵션이 비어있을 때 사용할 기본 옵션
 DEFAULT_ENUM_OPTIONS = {
+    # 예전 target_audience 기본옵션을 target_type_of_customer로 이관
+    "target_type_of_customer": [
+        "New customer 신규 판매",
+        "Existing Customers (Renewal) MODS 재계약",
+        "Existing Customers (Up sell)",
+        "Existing Customers (Cross Sell)",
+        "Existing Customers (Additional) 추가 판매",
+        "Existing Customers (Retroactive) 소급 판매",
+        "M-collection (M-collection 전환)",
+    ],
     "product__midas_": [
         "MIDAS Civil",
         "MIDAS FEA NX",
@@ -137,6 +146,7 @@ DEFAULT_ENUM_OPTIONS = {
         "MIDAS CIVIL NX",
     ],
 }
+
 
 # =============== 세션 상태 ===============
 ss = st.session_state
@@ -650,7 +660,7 @@ with tabs[idx[TAB1]]:
         # ── 정상: 스키마 기반 입력 폼 (페이지네비게이션) ─────────────────────
         PAGES = [
             ["country", "mbm_type", "city", "location"],
-            ["mbm_start_date", "mbm_finish_date", "target_audience", "expected_earnings", "product__midas_"],
+            ["mbm_start_date", "mbm_finish_date", "target_type_of_customer", "expected_earnings", "product__midas_"],  # ← 필드명 변경 반영
             ["campaign_key_item", "market_conditions", "pain_point_of_target", "benefits",
              "description_of_detailed_targets___________", "purpose_of_mbm"],
         ]
@@ -667,22 +677,30 @@ with tabs[idx[TAB1]]:
                     return [{"label": o, "value": o} for o in DEFAULT_ENUM_OPTIONS[name]]
             return opts
 
-        def render_multi_check(name: str, meta: dict):
+        # 체크박스 '드롭다운'(멀티셀렉트) 렌더러
+        def render_multi_dropdown(name: str, meta: dict):
             opts = _get_options(meta, name)
             labels = [o.get("label") or o.get("display") or o.get("value") for o in opts]
             values = [o.get("value") for o in opts]
             sel_key = f"mchk_{name}"
-            selected = set(ss.get(sel_key) or [])
-            cols = st.columns(2)
-            for i, (lab, val) in enumerate(zip(labels, values)):
-                with cols[i % 2]:
-                    checked = st.checkbox(lab, value=(val in selected), key=f"chk_{name}_{i}")
-                if checked:
-                    selected.add(val)
-                else:
-                    selected.discard(val)
-            ss[sel_key] = list(selected)
-            return ";".join(ss[sel_key])
+            base = f"fld_{name}"
+
+            # 이전 선택 복원
+            selected_vals = set(ss.get(sel_key) or [])
+
+            # 멀티셀렉트를 인덱스로 다루어 라벨 표시 & 값 저장
+            items = list(range(len(labels)))
+            default_items = [i for i, v in enumerate(values) if v in selected_vals]
+            chosen_idx = st.multiselect(
+                LABEL_OVERRIDES.get(name, human_label(name)),
+                options=items,
+                default=default_items,
+                format_func=lambda i: labels[i],
+                key=f"{base}_ms"
+            )
+            chosen_vals = [values[i] for i in chosen_idx]
+            ss[sel_key] = chosen_vals
+            return ";".join(chosen_vals)
 
         def render_field(name: str, meta: dict):
             lbl = LABEL_OVERRIDES.get(name, human_label(name))
@@ -690,10 +708,9 @@ with tabs[idx[TAB1]]:
             options = _get_options(meta, name)
             base = f"fld_{name}"
 
-            # 멀티체크는 열거형 타입일 때만
+            # 멀티체크 필드는 모두 '체크박스 드롭다운(멀티셀렉트)'로 표시
             if name in MULTI_CHECK_FIELDS and ptype in ("enumeration", "enum", "enumerationoptions"):
-                st.markdown(lbl)
-                return render_multi_check(name, meta)
+                return render_multi_dropdown(name, meta)
 
             # 단일 선택(드롭다운): 열거형 타입일 때만
             if ptype in ("enumeration", "enum", "enumerationoptions"):
@@ -772,8 +789,8 @@ with tabs[idx[TAB1]]:
                 for i, fname in enumerate(current_fields):
                     meta = props_map.get(fname, {})
                     if fname == full_span_field:
-                        st.markdown(LABEL_OVERRIDES.get(fname, fname))
-                        render_multi_check(fname, meta)
+                        # MIDAS는 가로 전체 사용 + 드롭다운 멀티선택
+                        render_multi_dropdown(fname, meta)
                     else:
                         with cols[i % 2]:
                             if fname == "title":
@@ -839,6 +856,7 @@ with tabs[idx[TAB1]]:
                         st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
                     except Exception as e:
                         st.error(f"실패: {e}")
+
 
 
 # =============== 탭②: 후속 작업 선택 ===============
