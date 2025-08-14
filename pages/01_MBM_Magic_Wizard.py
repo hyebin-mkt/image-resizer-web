@@ -754,88 +754,88 @@ with tabs[idx[TAB1]]:
         ss[base] = val
         return val
 
-        # ---- 입력 영역(페이지별 레이아웃) ----
-        form_box = st.container(border=True)
+    # ---- 입력 영역(페이지별 레이아웃) ----
+    form_box = st.container(border=True)
 
-        with form_box:
-            current_fields = PAGES[ss.prop_step-1]
+    with form_box:
+        current_fields = PAGES[ss.prop_step-1]
 
-            if ss.prop_step == 3:
-                # 페이지 3은 1열
-                for fname in current_fields:
-                    meta = props_map.get(fname, {})
-                    render_field(fname, meta)
-            else:
-                cols = st.columns(2)
-                full_span_field = "product__midas_" if ss.prop_step == 2 else None
-                for i, fname in enumerate(current_fields):
-                    meta = props_map.get(fname, {})
-                    if fname == full_span_field:
-                        st.markdown(LABEL_OVERRIDES.get(fname, fname))
-                        render_multi_check(fname, meta)
-                    else:
-                        with cols[i % 2]:
-                            if fname == "title": 
-                                continue
-                            render_field(fname, meta)
-
-        # ---- 페이지 네비게이션(아래 배치) ----
-        nav = st.container()
-        with nav:
-            col_prev, col_ctr, col_next = st.columns([1,1,1])
-            with col_prev:
-                if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
-                    ss.prop_step -= 1; st.rerun()
-            with col_ctr:
-                st.markdown(
-                    f"<div style='text-align:center;'>페이지 {ss.prop_step} / {total_steps}</div>",
-                    unsafe_allow_html=True
-                )
-            with col_next:
-                if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
-                    ss.prop_step += 1; st.rerun()
-
-        # ---- (버튼: 중앙 100% 폭) ----
-        gap_l, main, gap_r = st.columns([1, 10, 1])
-        with main:
-            if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
-                payload = {"title": ss.mbm_title}
-                missing = []
-
-                def get_val_for(name: str):
-                    if name in MULTI_CHECK_FIELDS:
-                        return ";".join(ss.get(f"mchk_{name}", [])) or None
-                    # 다양한 위젯키 중 세션에 저장해둔 내부 키 우선
-                    return ss.get(f"fld_{name}")
-
-                for n in MBM_FIELDS:
-                    if n == "title": 
-                        continue
-                    v = get_val_for(n)
-                    if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
-                        missing.append(n)
-                    elif v not in (None, ""):
-                        payload[n] = v
-
-                if missing:
-                    st.error("모든 필수 항목을 작성해주세요")
+        if ss.prop_step == 3:
+            # 페이지 3은 1열
+            for fname in current_fields:
+                meta = props_map.get(fname, {})
+                render_field(fname, meta)
+        else:
+            cols = st.columns(2)
+            full_span_field = "product__midas_" if ss.prop_step == 2 else None
+            for i, fname in enumerate(current_fields):
+                meta = props_map.get(fname, {})
+                if fname == full_span_field:
+                    st.markdown(LABEL_OVERRIDES.get(fname, fname))
+                    render_multi_check(fname, meta)
                 else:
-                    payload["auto_generate_campaign"] = "true"
-                    try:
-                        with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
-                            created = hs_create_mbm_object(payload)
-                            ss.mbm_object = created
-                            ss.mbm_submitted = True
-                            ss.active_stage = 2
-                            # 슬러그용 메타 저장
-                            ss.slug_country = payload.get("country")
-                            ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
-                            st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
-                            st.rerun()
-                    except requests.HTTPError as http_err:
-                        st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
-                    except Exception as e:
-                        st.error(f"실패: {e}")
+                    with cols[i % 2]:
+                        if fname == "title": 
+                            continue
+                        render_field(fname, meta)
+
+    # ---- 페이지 네비게이션(아래 배치) ----
+    nav = st.container()
+    with nav:
+        col_prev, col_ctr, col_next = st.columns([1,1,1])
+        with col_prev:
+            if ss.prop_step > 1 and st.button("◀ 이전", use_container_width=True, key="nav_prev"):
+                ss.prop_step -= 1; st.rerun()
+        with col_ctr:
+            st.markdown(
+                f"<div style='text-align:center;'>페이지 {ss.prop_step} / {total_steps}</div>",
+                unsafe_allow_html=True
+            )
+        with col_next:
+            if ss.prop_step < total_steps and st.button("다음 ▶", use_container_width=True, key="nav_next"):
+                ss.prop_step += 1; st.rerun()
+
+    # ---- (버튼: 중앙 100% 폭) ----
+    gap_l, main, gap_r = st.columns([1, 10, 1])
+    with main:
+        if st.button("MBM 오브젝트 생성하기", type="primary", use_container_width=True, key="create_mbm"):
+            payload = {"title": ss.mbm_title}
+            missing = []
+
+            def get_val_for(name: str):
+                if name in MULTI_CHECK_FIELDS:
+                    return ";".join(ss.get(f"mchk_{name}", [])) or None
+                # 다양한 위젯키 중 세션에 저장해둔 내부 키 우선
+                return ss.get(f"fld_{name}")
+
+            for n in MBM_FIELDS:
+                if n == "title": 
+                    continue
+                v = get_val_for(n)
+                if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
+                    missing.append(n)
+                elif v not in (None, ""):
+                    payload[n] = v
+
+            if missing:
+                st.error("모든 필수 항목을 작성해주세요")
+            else:
+                payload["auto_generate_campaign"] = "true"
+                try:
+                    with st.spinner("HubSpot에 MBM 오브젝트 생성 중…"):
+                        created = hs_create_mbm_object(payload)
+                        ss.mbm_object = created
+                        ss.mbm_submitted = True
+                        ss.active_stage = 2
+                        # 슬러그용 메타 저장
+                        ss.slug_country = payload.get("country")
+                        ss.slug_finish_ms = payload.get("mbm_finish_date") or payload.get("mbm_start_date")
+                        st.success("생성 완료! ‘후속 작업 선택’ 탭으로 이동합니다.")
+                        st.rerun()
+                except requests.HTTPError as http_err:
+                    st.error(f"HubSpot API 오류: {http_err.response.status_code} - {http_err.response.text}")
+                except Exception as e:
+                    st.error(f"실패: {e}")
 
 # =============== 탭②: 후속 작업 선택 ===============
 if ss.mbm_submitted:
