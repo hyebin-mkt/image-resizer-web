@@ -620,8 +620,18 @@ div[data-baseweb="select"] { z-index: 1000 !important; }
 /* 제출 버튼을 폼 너비에 맞추고 패딩 주기 */
 .mbm-wide-btn button { width: 100% !important; padding: 12px 0 !important; border-radius: 10px !important; }
 
-/* 네비 아이콘 버튼 크기 조절 */
-.mbm-nav-btn button { padding: 4px 10px !important; border-radius: 8px !important; }
+/* 네비 버튼: 테두리/배경 제거 */
+.mbm-nav-btn button {
+  padding: 6px 14px !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 999px !important;
+}
+.mbm-nav-btn button:disabled { opacity: .35 !important; }
+
+/* 도트/버튼 한 줄 중앙 정렬 여백 */
+.mbm-nav-row { margin-top: 6px; }             
 </style>
 """, unsafe_allow_html=True)
 
@@ -829,15 +839,15 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                     render_field(fname, meta)
             else:
                 cols = st.columns(2)
-                full_span_field = "product__midas_" if ss.prop_step == 2 else None
+                # ▶ 2단계에서 타겟고객/제품 둘 다 풀폭 처리
+                full_span_fields = {"target_type_of_customer", "product__midas_"} if ss.prop_step == 2 else set()
                 for i, fname in enumerate(current_fields):
                     meta = props_map.get(fname, {})
-                    if fname == full_span_field:
-                        # MIDAS는 가로 전체 사용 + 멀티선택
+                    if fname in full_span_fields:
                         render_multi_dropdown(fname, meta)
                     else:
                         with cols[i % 2]:
-                            if fname == "title":
+                            if fname == "title":  # 안전
                                 continue
                             render_field(fname, meta)
 
@@ -845,24 +855,27 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
             st.markdown('</div>', unsafe_allow_html=True)
 
         # 하단 도트 페이지네이션 + 이동 버튼
-        nav_left, nav_center, nav_right = st.columns([1, 6, 1])
-        with nav_left:
-            st.markdown('<div class="mbm-nav-btn">', unsafe_allow_html=True)
-            if st.button("＜", use_container_width=True, key="nav_prev", disabled=ss.prop_step <= 1):
+        nav_l, nav_c, nav_r = st.columns([1, 8, 1], gap="small")
+
+        with nav_l:
+            st.markdown('<div class="mbm-nav-btn mbm-nav-row">', unsafe_allow_html=True)
+            if st.button("‹", key="nav_prev", use_container_width=True, disabled=ss.prop_step <= 1):
                 ss.prop_step -= 1
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-
-        with nav_center:
+        
+        with nav_c:
+            st.markdown('<div class="mbm-nav-row">', unsafe_allow_html=True)
             _render_step_dots(ss.prop_step, total_steps)
-            if st.button("＞", use_container_width=True, key="nav_next", disabled=ss.prop_step >= total_steps):
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with nav_r:
+            st.markdown('<div class="mbm-nav-btn mbm-nav-row">', unsafe_allow_html=True)
+            if st.button("›", key="nav_next", use_container_width=True, disabled=ss.prop_step >= total_steps):
                 ss.prop_step += 1
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-            
-        with nav_right:
-            st.markdown('<div class="mbm-nav-btn">', unsafe_allow_html=True)
-
+                                                                        
         
         # 제출 버튼(폼 너비와 동일)
         st.markdown('<div class="mbm-wide-btn">', unsafe_allow_html=True)
