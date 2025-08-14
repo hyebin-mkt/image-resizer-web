@@ -594,7 +594,7 @@ with tabs[idx[TAB1]]:
 
     ca, cb, cc = st.columns([2,2,1])
     with ca:
-        if st.button("MBM 오브젝트 생성하기", use_container_width=True, type="primary", disabled=not ss.mbm_title):
+        if st.button("제출하기", use_container_width=True, type="primary", disabled=not ss.mbm_title):
             if not ss.mbm_title:
                 st.error("MBM 오브젝트 타이틀을 먼저 입력하세요.")
             else:
