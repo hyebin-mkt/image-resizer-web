@@ -514,7 +514,7 @@ def clone_site_page_resilient(template_id: str, clone_name: str) -> dict:
 
 
 # =============== 탭 구성 ===============
-TAB1 = "MBM 오브젝트 제출"
+TAB1 = "MBM 타이틀 작성"
 TAB2 = "후속 작업 선택"
 TAB3 = "최종 링크 공유"
 
