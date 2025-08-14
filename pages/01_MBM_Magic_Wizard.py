@@ -112,7 +112,7 @@ LABEL_OVERRIDES = {
 }
 
 # 멀티 체크 필드
-MULTI_CHECK_FIELDS = {"product__midas_"}   # ← target_audience 제거
+MULTI_CHECK_FIELDS = {"target_audience", "product__midas_"}
 def _get_options(meta: dict, name: str):
     ptype = (meta.get("type") or "").lower()
     opts = meta.get("options") or []
