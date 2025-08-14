@@ -617,9 +617,6 @@ section.main [data-testid="stForm"] { overflow: visible !important; }
 /* BaseWeb Select 계열 팝오버가 위로 올라오도록 */
 div[data-baseweb="select"] { z-index: 1000 !important; }
 
-/* 제출 버튼을 폼 너비에 맞추고 패딩 주기 */
-.mbm-wide-btn button { width: 100% !important; padding: 5px 0 !important; border-radius: 10px !important; }
-
 /* 네비 버튼: 테두리/배경 제거 */
 .mbm-nav-btn button {
   padding: 6px 14px !important;
@@ -652,7 +649,23 @@ div[data-baseweb="select"] { z-index: 1000 !important; }
 }
 
 /* 기존: 폭/패딩/곡률은 공통 클래스에서 그대로 사용 */
-.mbm-wide-btn button { width:100% !important; padding:12px 0 !important; border-radius:10px !important; }
+/* 제출 버튼: 세로 여백 축소 */
+.mbm-wide-btn button{
+  width: 100% !important;
+  padding: 6px 0 !important;      /* 12px → 6px */
+  min-height: 36px !important;     /* 기본 높이 낮춤 */
+  line-height: 1.2 !important;
+  border-radius: 10px !important;
+}
+
+/* 버튼 컨테이너 위·아래 마진 축소 */
+.mbm-wide-btn{ margin: 4px 0 !important; }
+
+/* 전역 8px 규칙을 버튼 컨테이너에 한해 덮어쓰기 */
+section.main [data-testid="stVerticalBlock"] > div.mbm-wide-btn{
+  margin-bottom: 4px !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -878,7 +891,7 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                 if n in MULTI_CHECK_FIELDS:
                     return ";".join(ss.get(f"mchk_{n}", [])) or None
                 return ss.get(f"fld_{n}")
-
+            
             missing_now = []
             for n in MBM_FIELDS:
                 if n == "title":     # 타이틀은 탭1에서 이미 입력
@@ -886,26 +899,33 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                 v = _get_val_for(n)
                 if (n in REQUIRED_FIELDS) and (v in (None, "", ";")):
                     missing_now.append(n)
-
+            
             all_required_ok = (len(missing_now) == 0)
-
-            # 상태별 스타일 래퍼 클래스 선택
+            
+            # 상태별 스타일 + 툴팁 텍스트
             wrapper_cls = "mbm-submit-filled" if all_required_ok else "mbm-submit-outlined"
-            st.markdown(f'<div class="mbm-wide-btn {wrapper_cls}">', unsafe_allow_html=True)
-
+            tooltip_txt = "" if all_required_ok else "필수항목을 모두 작성해주세요"
+            
+            # div 자체에 title 속성 → 버튼이 disabled여도 마우스오버 시 브라우저 툴팁 표시
+            st.markdown(
+                f'<div class="mbm-wide-btn {wrapper_cls}" title="{tooltip_txt}">', 
+                unsafe_allow_html=True
+            )
+            
             clicked = st.button(
                 "제출하기",
                 type=("primary" if all_required_ok else "secondary"),
                 use_container_width=True,
                 key="create_mbm",
-                disabled=not all_required_ok   # 조건 만족 전에는 비활성(테두리만 보임)
+                disabled=not all_required_ok,
+                # Streamlit 기본 help 툴팁도 함께(작은 ? 아이콘): 선택사항
+                help=None if all_required_ok else "필수항목을 모두 작성해주세요"
             )
             st.markdown('</div>', unsafe_allow_html=True)
-
+            
             if clicked:
                 payload = {"title": ss.mbm_title}
                 missing = []
-
                 for n in MBM_FIELDS:
                     if n == "title":
                         continue
@@ -914,7 +934,6 @@ if ss.show_prop_form and not ss.mbm_submitted and TAB1B in idx:
                         missing.append(n)
                     elif v not in (None, ""):
                         payload[n] = v
-
                 if missing:
                     st.error("모든 필수 항목을 작성해주세요")
                 else:
